@@ -130,6 +130,47 @@ func main() {
 			return
 		}
 		fmt.Printf("deleted #%d\n", id)
+	case "get":
+		if len(os.Args) < 3 {
+			fmt.Fprintln(os.Stderr, "usage: nt-cli get <id>")
+			os.Exit(1)
+		}
+		id, err := app.ParsePositiveID(os.Args[2])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
+		item, err := svc.Get(id)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "get failed: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println(app.FormatNote(item))
+	case "update":
+		if len(os.Args) < 4 {
+			fmt.Fprintln(os.Stderr, "usage: nt-cli update <id> \"new content\"")
+			os.Exit(1)
+		}
+		id, err := app.ParsePositiveID(os.Args[2])
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err.Error())
+			os.Exit(1)
+		}
+		content := strings.TrimSpace(strings.Join(os.Args[3:], " "))
+		if content == "" {
+			fmt.Fprintln(os.Stderr, "content cannot be empty")
+			os.Exit(1)
+		}
+		ok, err := svc.Update(id, content)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "update failed: %v\n", err)
+			os.Exit(1)
+		}
+		if !ok {
+			fmt.Fprintf(os.Stderr, "note #%d not found\n", id)
+			os.Exit(1)
+		}
+		fmt.Printf("updated #%d\n", id)
 	default:
 		printUsage()
 		os.Exit(1)
@@ -142,6 +183,8 @@ func printUsage() {
 	fmt.Println("  nt-cli save \"note\"")
 	fmt.Println("  nt-cli recall \"query\"")
 	fmt.Println("  nt-cli list [limit]")
+	fmt.Println("  nt-cli get <id>")
+	fmt.Println("  nt-cli update <id> \"new content\"")
 	fmt.Println("  nt-cli delete <id>")
 	fmt.Println("  nt-cli mcp")
 }
