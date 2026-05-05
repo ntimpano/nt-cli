@@ -62,3 +62,25 @@ El wrapper `scripts/opencode-mcp-dev.sh` ejecuta `go run ./cmd/nt-cli mcp`.
 Así, OpenCode siempre levanta el código más reciente al iniciar el MCP.
 
 > Nota: igual necesitás reabrir/reconectar OpenCode para que relance el proceso MCP, pero no hace falta compilar manualmente cada cambio.
+
+## Engram Offramp
+
+`nt-cli` está reemplazando a Engram como backend de memoria. La migración se
+ejecuta en tres fases (shadow → partial → full) con compuertas de readiness
+medibles y un rollback reversible.
+
+**Fase actual**: shadow
+
+- Runbook completo y checklist de salida: [`docs/engram-offramp.md`](docs/engram-offramp.md)
+- Compuertas de readiness G1–G6: ver [tabla en el runbook](docs/engram-offramp.md#readiness-gates-g1g6)
+
+### Triggers de rollback
+
+Si pasa cualquiera de estos, ejecutar el [rollback runbook](docs/engram-offramp.md#rollback-runbook):
+
+- `internal/mcp/parity_test.go` falla luego de haber estado verde.
+- Reporte de pérdida de datos atribuible a `nt-cli`.
+- Error de registro de tools MCP al arrancar el host.
+- Tasa de error en la ventana de soak por encima del umbral documentado.
+
+El rollback es **no destructivo para Engram**: ningún paso modifica datos de Engram.
