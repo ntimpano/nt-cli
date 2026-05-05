@@ -71,6 +71,15 @@ type localDeleteArgs struct {
 	ID int64 `json:"id"`
 }
 
+type localGetArgs struct {
+	ID int64 `json:"id"`
+}
+
+type localUpdateArgs struct {
+	ID      int64  `json:"id"`
+	Content string `json:"content"`
+}
+
 type initializeParams struct {
 	ProtocolVersion string `json:"protocolVersion"`
 }
@@ -240,109 +249,13 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 			if isNotification {
 				return response{}, false
 			}
-			result := map[string]interface{}{
-				"tools": []map[string]interface{}{
-					{
-						"name":        "local_save",
-						"description": "Guarda una nota local en SQLite",
-						"inputSchema": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"content": map[string]interface{}{"type": "string"},
-							},
-							"required": []string{"content"},
-						},
-					},
-					{
-						"name":        "local_recall",
-						"description": "Busca notas locales por texto",
-						"inputSchema": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"query": map[string]interface{}{"type": "string"},
-								"limit": map[string]interface{}{"type": "integer", "minimum": 1},
-							},
-							"required": []string{"query"},
-						},
-					},
-					{
-						"name":        "local_list",
-						"description": "Lista notas recientes",
-						"inputSchema": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"limit": map[string]interface{}{"type": "integer", "minimum": 1},
-							},
-						},
-					},
-					{
-						"name":        "local_delete",
-						"description": "Elimina una nota por id",
-						"inputSchema": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"id": map[string]interface{}{"type": "integer", "minimum": 1},
-							},
-							"required": []string{"id"},
-						},
-					},
-				},
-			}
-			return response{JSONRPC: "2.0", ID: req.ID, Result: result}, true
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolsListResult()}, true
 
 		case "tools/list":
 			if isNotification {
 				return response{}, false
 			}
-			result := map[string]interface{}{
-				"tools": []map[string]interface{}{
-					{
-						"name":        "local_save",
-						"description": "Guarda una nota local en SQLite",
-						"inputSchema": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"content": map[string]interface{}{"type": "string"},
-							},
-							"required": []string{"content"},
-						},
-					},
-					{
-						"name":        "local_recall",
-						"description": "Busca notas locales por texto",
-						"inputSchema": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"query": map[string]interface{}{"type": "string"},
-								"limit": map[string]interface{}{"type": "integer", "minimum": 1},
-							},
-							"required": []string{"query"},
-						},
-					},
-					{
-						"name":        "local_list",
-						"description": "Lista notas recientes",
-						"inputSchema": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"limit": map[string]interface{}{"type": "integer", "minimum": 1},
-							},
-						},
-					},
-					{
-						"name":        "local_delete",
-						"description": "Elimina una nota por id",
-						"inputSchema": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"id": map[string]interface{}{"type": "integer", "minimum": 1},
-							},
-							"required": []string{"id"},
-						},
-					},
-				},
-			}
-			return response{JSONRPC: "2.0", ID: req.ID, Result: result}, true
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolsListResult()}, true
 
 		case "tools/call":
 			if isNotification {
@@ -400,6 +313,32 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 					return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("note #%d not found", args.ID))}, true
 				}
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("deleted #%d", args.ID))}, true
+
+			case "local_get":
+				var args localGetArgs
+				if err := json.Unmarshal(params.Arguments, &args); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+				}
+				item, err := svc.Get(args.ID)
+				if err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				b, _ := json.Marshal(memoryItemPayload(item))
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
+
+			case "local_update":
+				var args localUpdateArgs
+				if err := json.Unmarshal(params.Arguments, &args); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+				}
+				ok, err := svc.Update(args.ID, args.Content)
+				if err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				if !ok {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(fmt.Sprintf("note #%d not found", args.ID))}, true
+				}
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("updated #%d", args.ID))}, true
 
 			default:
 				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "tool not found"}}, true
@@ -523,5 +462,92 @@ func toolError(msg string) map[string]interface{} {
 			{"type": "text", "text": msg},
 		},
 		"isError": true,
+	}
+}
+
+// toolsListResult returns the canonical advertised tools payload, used by
+// both `tools` and `tools/list` JSON-RPC methods to keep them in sync.
+func toolsListResult() map[string]interface{} {
+	return map[string]interface{}{
+		"tools": []map[string]interface{}{
+			{
+				"name":        "local_save",
+				"description": "Guarda una nota local en SQLite",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"content": map[string]interface{}{"type": "string"},
+					},
+					"required": []string{"content"},
+				},
+			},
+			{
+				"name":        "local_recall",
+				"description": "Busca notas locales por texto",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"query": map[string]interface{}{"type": "string"},
+						"limit": map[string]interface{}{"type": "integer", "minimum": 1},
+					},
+					"required": []string{"query"},
+				},
+			},
+			{
+				"name":        "local_list",
+				"description": "Lista notas recientes",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"limit": map[string]interface{}{"type": "integer", "minimum": 1},
+					},
+				},
+			},
+			{
+				"name":        "local_delete",
+				"description": "Elimina una nota por id",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"id": map[string]interface{}{"type": "integer", "minimum": 1},
+					},
+					"required": []string{"id"},
+				},
+			},
+			{
+				"name":        "local_get",
+				"description": "Obtiene una nota local por id",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"id": map[string]interface{}{"type": "integer", "minimum": 1},
+					},
+					"required": []string{"id"},
+				},
+			},
+			{
+				"name":        "local_update",
+				"description": "Actualiza el contenido de una nota local por id",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"id":      map[string]interface{}{"type": "integer", "minimum": 1},
+						"content": map[string]interface{}{"type": "string"},
+					},
+					"required": []string{"id", "content"},
+				},
+			},
+		},
+	}
+}
+
+// memoryItemPayload renders a MemoryItem as a JSON-serialisable map with
+// UTC ISO-8601 timestamps, used by both CLI and MCP surfaces.
+func memoryItemPayload(it app.MemoryItem) map[string]interface{} {
+	return map[string]interface{}{
+		"id":         it.ID,
+		"content":    it.Content,
+		"created_at": it.CreatedAt.UTC().Format(time.RFC3339Nano),
+		"updated_at": it.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}
 }
