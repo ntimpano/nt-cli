@@ -472,7 +472,7 @@ func toolsListResult() map[string]interface{} {
 		"tools": []map[string]interface{}{
 			{
 				"name":        "local_save",
-				"description": "Guarda una nota local en SQLite",
+				"description": "Guarda una nota local en SQLite (local-only; no usa Engram).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -483,7 +483,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_recall",
-				"description": "Busca notas locales por texto",
+				"description": "Busca notas locales por texto en SQLite (local-only; no consulta Engram).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -495,7 +495,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_list",
-				"description": "Lista notas recientes",
+				"description": "Lista notas recientes desde SQLite (local-only; no incluye Engram).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -505,7 +505,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_delete",
-				"description": "Elimina una nota por id",
+				"description": "Elimina una nota local por id en SQLite (local-only; no afecta Engram).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -516,7 +516,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_get",
-				"description": "Obtiene una nota local por id",
+				"description": "Obtiene una nota local por id desde SQLite (local-only; no consulta Engram).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -527,7 +527,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_update",
-				"description": "Actualiza el contenido de una nota local por id",
+				"description": "Actualiza el contenido de una nota local por id en SQLite (local-only; no afecta Engram).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
