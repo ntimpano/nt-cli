@@ -67,6 +67,24 @@ func (s *Service) List(limit int) ([]MemoryItem, error) {
 	return s.repo.List(limit)
 }
 
+func (s *Service) Get(id int64) (MemoryItem, error) {
+	if id <= 0 {
+		return MemoryItem{}, errors.New("id must be positive")
+	}
+	return s.repo.Get(id)
+}
+
+func (s *Service) Update(id int64, content string) (bool, error) {
+	if id <= 0 {
+		return false, errors.New("id must be positive")
+	}
+	clean := strings.TrimSpace(content)
+	if clean == "" {
+		return false, errors.New("content is empty")
+	}
+	return s.repo.Update(id, clean, time.Now().UTC())
+}
+
 func (s *Service) Delete(id int64) (bool, error) {
 	if id <= 0 {
 		return false, errors.New("id must be positive")
