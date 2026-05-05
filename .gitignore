@@ -1,0 +1,4 @@
+nt-cli
+*.db
+*.log
+.DS_Store
