@@ -13,9 +13,14 @@ type Store interface {
 	Save(content string, createdAt time.Time) (int64, error)
 	Recall(query string, limit int) ([]MemoryItem, error)
 	List(limit int) ([]MemoryItem, error)
+	Get(id int64) (MemoryItem, error)
+	Update(id int64, content string, updatedAt time.Time) (bool, error)
 	Delete(id int64) (bool, error)
 	Close() error
 }
+
+// ErrNotFound is the stable sentinel returned when a note id does not exist.
+var ErrNotFound = errors.New("note not found")
 
 type Service struct {
 	repo Store
@@ -25,6 +30,7 @@ type MemoryItem struct {
 	ID        int64
 	Content   string
 	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 func NewService(repo Store) *Service {
