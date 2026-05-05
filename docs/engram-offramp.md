@@ -81,6 +81,73 @@ inputs across the sample. Record pass/fail per row.
 | 6 | delete | `nt-cli delete <id>` | `local_delete` | |
 | 7–10 | repeat any of the above with edge inputs (empty query, missing id, large content) | | | |
 
+## Host profile toggle (`NTCLI_PROFILE`)
+
+The wrapper at `scripts/opencode-mcp-dev.sh` reads a single env var,
+`NTCLI_PROFILE`, that names the active host profile. The wrapper does **not**
+itself enable or disable Engram — the actual on/off is governed by the
+OpenCode MCP host config (which MCP servers it registers). The profile is
+the operator-visible label that records *which* configuration is in effect
+and makes it verifiable from tests and logs.
+
+| Profile | Engram memory tools | nt-cli memory tools | Use during |
+|---------|---------------------|---------------------|------------|
+| `shadow` (default) | registered | registered | Shadow phase |
+| `pilot` | not registered | registered | Partial cutover |
+
+### Toggling at the host
+
+The toggle is a **single config change** in `~/.config/opencode/opencode.json`.
+
+```jsonc
+{
+  "mcp": {
+    // Default / shadow profile: keep Engram registered alongside nt-cli.
+    "engram": {
+      "type": "local",
+      "command": ["/path/to/engram", "mcp"]
+    },
+    "ntcli": {
+      "type": "local",
+      "command": ["/opt/nt-cli/scripts/opencode-mcp-dev.sh"],
+      "environment": { "NTCLI_PROFILE": "shadow" }
+    }
+
+    // Pilot profile (Engram-off): comment out the "engram" entry above
+    // AND set NTCLI_PROFILE=pilot below. nt-cli becomes the sole memory
+    // surface. Reconnect OpenCode for the change to take effect.
+    //
+    // "ntcli": {
+    //   "type": "local",
+    //   "command": ["/opt/nt-cli/scripts/opencode-mcp-dev.sh"],
+    //   "environment": { "NTCLI_PROFILE": "pilot" }
+    // }
+  }
+}
+```
+
+### Verifying the active profile
+
+```bash
+# Print resolved profile without launching MCP:
+NTCLI_PROFILE=pilot /opt/nt-cli/scripts/opencode-mcp-dev.sh --print-profile
+# → pilot
+
+# On every real launch the wrapper emits a marker on stderr:
+# ntcli-mcp-dev profile=pilot
+```
+
+Unknown values (e.g. typos like `pilto`) cause the wrapper to exit with a
+non-zero status and a stderr message that names both the offending value
+and the valid set. Operators cannot silently end up in an undefined
+profile.
+
+### Rollback via the toggle
+
+A rollback from pilot to shadow is one config change: re-add the `engram`
+entry and set `NTCLI_PROFILE=shadow` (or remove the env var). Reconnect
+OpenCode. No nt-cli or Engram data is touched.
+
 ## Observability: `NTCLI_MCP_DEBUG`
 
 When an MCP call fails or behaves unexpectedly, enable structured debug logs

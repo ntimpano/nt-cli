@@ -73,6 +73,7 @@ medibles y un rollback reversible.
 
 - Runbook completo y checklist de salida: [`docs/engram-offramp.md`](docs/engram-offramp.md)
 - Compuertas de readiness G1–G6: ver [tabla en el runbook](docs/engram-offramp.md#readiness-gates-g1g6)
+- Toggle de host (`NTCLI_PROFILE=shadow|pilot`): ver [Host profile toggle](docs/engram-offramp.md#host-profile-toggle-ntcli_profile)
 
 ### Triggers de rollback
 
