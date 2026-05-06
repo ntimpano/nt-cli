@@ -459,11 +459,33 @@ func runSession(svc *Service, args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "end":
 		if len(args) < 2 {
-			fmt.Fprintln(stderr, "usage: nt-cli session end <id>")
+			fmt.Fprintln(stderr, "usage: nt-cli session end <id> [--force]")
 			return 1
 		}
 		id := strings.TrimSpace(args[1])
-		if err := svc.SessionEnd(id); err != nil {
+		// Phase 6 / autopilot: --force bypasses the summary guard.
+		// Accept the flag in any position after id so users don't
+		// have to think about ordering.
+		force := false
+		for _, a := range args[2:] {
+			if a == "--force" {
+				force = true
+			}
+		}
+		var err error
+		if force {
+			err = svc.SessionEndForce(id)
+		} else {
+			err = svc.SessionEnd(id)
+		}
+		if err != nil {
+			// Map the autopilot sentinel to exit code 2 so scripts
+			// can distinguish "summary missing, you should write
+			// one" from generic failures (exit 1).
+			if errors.Is(err, ErrSummaryRequired) {
+				fmt.Fprintf(stderr, "session end failed: %v\n", err)
+				return 2
+			}
 			fmt.Fprintf(stderr, "session end failed: %v\n", err)
 			return 1
 		}
