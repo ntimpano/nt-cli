@@ -99,6 +99,11 @@ type localSessionArgs struct {
 	Summary   string `json:"summary,omitempty"`
 }
 
+type localImportArgs struct {
+	Path   string `json:"path"`
+	DryRun bool   `json:"dry_run,omitempty"`
+}
+
 type initializeParams struct {
 	ProtocolVersion string `json:"protocolVersion"`
 }
@@ -449,6 +454,29 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				}
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("session summary %s", strings.TrimSpace(args.SessionID)))}, true
 
+			case "local_import":
+				var args localImportArgs
+				if err := json.Unmarshal(params.Arguments, &args); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+				}
+				path := strings.TrimSpace(args.Path)
+				if path == "" {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("path is required")}, true
+				}
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(fmt.Sprintf("read file: %v", err))}, true
+				}
+				res, err := svc.ImportJSON(data, args.DryRun)
+				if err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				prefix := "import"
+				if args.DryRun {
+					prefix = "import (dry-run)"
+				}
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("%s: inserted=%d skipped=%d", prefix, res.Inserted, res.Skipped))}, true
+
 			default:
 				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "tool not found"}}, true
 			}
@@ -696,6 +724,18 @@ func toolsListResult() map[string]interface{} {
 						"summary":    map[string]interface{}{"type": "string"},
 					},
 					"required": []string{"session_id", "summary"},
+				},
+			},
+			{
+				"name":        "local_import",
+				"description": "Importa observaciones desde un archivo JSON al store local SQLite (local-only; no afecta Engram). Idempotente: deduplica por (topic_key, hash de content).",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"path":    map[string]interface{}{"type": "string"},
+						"dry_run": map[string]interface{}{"type": "boolean"},
+					},
+					"required": []string{"path"},
 				},
 			},
 		},

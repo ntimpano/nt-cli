@@ -1,7 +1,9 @@
 package store
 
 import (
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -159,6 +161,7 @@ func (s *SQLiteStore) Init() error {
 		`ALTER TABLE memory_items ADD COLUMN type TEXT`,
 		`ALTER TABLE memory_items ADD COLUMN topic_key TEXT`,
 		`ALTER TABLE memory_items ADD COLUMN scope TEXT`,
+		`ALTER TABLE memory_items ADD COLUMN content_hash TEXT`,
 	} {
 		if _, err := tx.Exec(alter); err != nil {
 			if !isDuplicateColumnErr(err) {
@@ -197,6 +200,17 @@ func (s *SQLiteStore) Init() error {
 	}
 	if _, err := tx.Exec(
 		`CREATE INDEX IF NOT EXISTS idx_sessions_session_id ON sessions(session_id, id)`,
+	); err != nil {
+		return err
+	}
+
+	// M3 — content_hash column on memory_items powers the import dedupe
+	// key `(topic_key, content_hash)`. Column was added with the rest of
+	// the additive ALTERs above; the index is created here so it lives
+	// inside the v3 migration step alongside the sessions table.
+	if _, err := tx.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_memory_items_import_dedupe
+		 ON memory_items(topic_key, content_hash)`,
 	); err != nil {
 		return err
 	}
@@ -818,4 +832,80 @@ func (s *SQLiteStore) SessionEvents(id string) ([]app.SessionEvent, error) {
 		out = append(out, ev)
 	}
 	return out, rows.Err()
+}
+
+// ImportRecords inserts a batch of records, deduping each row on the
+// composite key `(topic_key, sha256(content))`. Rows that match an
+// existing key are counted as Skipped and not written. Empty content
+// is also skipped (defensive — input parsers should already filter).
+//
+// The whole batch runs in a single transaction so a mid-batch failure
+// rolls back cleanly. CreatedAt for new rows is stamped with time.Now
+// at the store layer to avoid clock skew between caller and DB.
+func (s *SQLiteStore) ImportRecords(rows []app.ImportRecord) (app.ImportResult, error) {
+	res := app.ImportResult{}
+	if len(rows) == 0 {
+		return res, nil
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return res, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	now := time.Now().UTC().Format(time.RFC3339)
+	for _, r := range rows {
+		content := r.Content
+		if strings.TrimSpace(content) == "" {
+			res.Skipped++
+			continue
+		}
+		hash := contentHash(content)
+		// Dedupe lookup. COALESCE so empty/null topic_key both compare
+		// against the literal empty string, keeping pure-content imports
+		// idempotent (spec scenario "Re-import produces no duplicates").
+		var existing int64
+		err := tx.QueryRow(
+			`SELECT id FROM memory_items
+			 WHERE COALESCE(topic_key, '') = COALESCE(?, '')
+			   AND content_hash = ?
+			 LIMIT 1`,
+			r.TopicKey, hash,
+		).Scan(&existing)
+		if err == nil {
+			res.Skipped++
+			continue
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return res, err
+		}
+
+		typ := r.Type
+		if strings.TrimSpace(typ) == "" {
+			typ = "manual"
+		}
+		scope := r.Scope
+		if strings.TrimSpace(scope) == "" {
+			scope = "project"
+		}
+		if _, err := tx.Exec(
+			`INSERT INTO memory_items(content, created_at, updated_at, title, type, topic_key, scope, content_hash)
+			 VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
+			content, now, now, r.Title, typ, r.TopicKey, scope, hash,
+		); err != nil {
+			return res, err
+		}
+		res.Inserted++
+	}
+	if err := tx.Commit(); err != nil {
+		return res, err
+	}
+	return res, nil
+}
+
+// contentHash returns the lowercase hex sha256 of the input. Used as
+// the second component of the import dedupe key.
+func contentHash(content string) string {
+	sum := sha256.Sum256([]byte(content))
+	return hex.EncodeToString(sum[:])
 }

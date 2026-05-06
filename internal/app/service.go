@@ -1,6 +1,7 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -46,6 +47,33 @@ type SessionStore interface {
 	SessionSummary(id, summary string, at time.Time) error
 	SessionEnd(id string, at time.Time) error
 	SessionEvents(id string) ([]SessionEvent, error)
+}
+
+// ImportRecord is a single row queued for the M3 import bridge. Empty
+// metadata fields default to type=manual / scope=project at the store
+// layer (mirrors SaveWithMeta behaviour). CreatedAt zero = stamp now.
+type ImportRecord struct {
+	Content  string
+	Title    string
+	Type     string
+	TopicKey string
+	Scope    string
+}
+
+// ImportResult is the count summary returned by ImportRecords. Inserted +
+// Skipped MUST equal len(input). Skipped covers both dedupe hits and
+// validation drops (empty content) so callers can render a single
+// "no-op" status from a single field.
+type ImportResult struct {
+	Inserted int
+	Skipped  int
+}
+
+// ImportStore extends Store with the idempotent import path introduced
+// by M3. Dedupe key is `(topic_key, sha256(content))`. Same defensive
+// type-assert pattern as the other M3 capability interfaces.
+type ImportStore interface {
+	ImportRecords(rows []ImportRecord) (ImportResult, error)
 }
 
 // FilterStore extends Store with the structured read paths introduced by
@@ -309,6 +337,57 @@ func (s *Service) validateSessionID(id string) (string, error) {
 	return clean, nil
 }
 
+// importJSONRecord mirrors ImportRecord with JSON tags. Kept private —
+// callers send raw bytes and the service handles the parse so we can
+// add MD/CSV later without exposing parser details.
+type importJSONRecord struct {
+	Content  string `json:"content"`
+	Title    string `json:"title,omitempty"`
+	Type     string `json:"type,omitempty"`
+	TopicKey string `json:"topic_key,omitempty"`
+	Scope    string `json:"scope,omitempty"`
+}
+
+// ImportJSON parses a JSON array of records and either writes them via
+// ImportRecords (idempotent dedupe at the store) or, in dry-run mode,
+// returns the planned insert count without touching the store.
+//
+// Empty/whitespace-only `content` is dropped client-side so partially
+// malformed files still surface valid rows. The store does its own
+// dedupe by `(topic_key, sha256(content))` — this method only handles
+// parsing + dry-run accounting.
+func (s *Service) ImportJSON(data []byte, dryRun bool) (ImportResult, error) {
+	var records []importJSONRecord
+	if err := json.Unmarshal(data, &records); err != nil {
+		return ImportResult{}, err
+	}
+	rows := make([]ImportRecord, 0, len(records))
+	for _, r := range records {
+		if strings.TrimSpace(r.Content) == "" {
+			continue
+		}
+		rows = append(rows, ImportRecord{
+			Content:  r.Content,
+			Title:    r.Title,
+			Type:     r.Type,
+			TopicKey: r.TopicKey,
+			Scope:    r.Scope,
+		})
+	}
+	if dryRun {
+		// In dry-run we report the local plan: every valid row is a
+		// planned insert. The store's dedupe pass would refine this,
+		// but we can't peek at the store without writing — that's the
+		// honest contract per spec scenario "Dry-run reports without
+		// writing".
+		return ImportResult{Inserted: len(rows)}, nil
+	}
+	imp, ok := s.repo.(ImportStore)
+	if !ok {
+		return ImportResult{}, errors.New("store does not support import operations")
+	}
+	return imp.ImportRecords(rows)
+}
 
 func DefaultDBPath() (string, error) {
 	home, err := os.UserHomeDir()

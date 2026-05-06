@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -326,6 +327,9 @@ func RunCLI(svc *Service, args []string, stdout, stderr io.Writer) int {
 	case "session":
 		return runSession(svc, args[1:], stdout, stderr)
 
+	case "import":
+		return runImport(svc, args[1:], stdout, stderr)
+
 	default:
 		printUsage(stdout)
 		return 1
@@ -335,6 +339,55 @@ func RunCLI(svc *Service, args []string, stdout, stderr io.Writer) int {
 // runSession dispatches `nt-cli session <start|end|summary> <id> [text...]`.
 // Kept as a helper so the main switch stays scannable. Validation lives at
 // the service layer; the CLI is just an args parser + presenter.
+// runImport dispatches `nt-cli import [--dry-run] <file.json>`. Currently
+// JSON-only; format is detected by extension when MD/CSV are added.
+func runImport(svc *Service, args []string, stdout, stderr io.Writer) int {
+	dryRun := false
+	var path string
+	for _, a := range args {
+		if strings.HasPrefix(a, "--") {
+			key, val, hasVal := strings.Cut(strings.TrimPrefix(a, "--"), "=")
+			switch key {
+			case "dry-run":
+				if hasVal && strings.ToLower(strings.TrimSpace(val)) == "false" {
+					dryRun = false
+				} else {
+					dryRun = true
+				}
+			default:
+				fmt.Fprintf(stderr, "unknown flag --%s\n", key)
+				return 1
+			}
+			continue
+		}
+		if path != "" {
+			fmt.Fprintln(stderr, "import takes a single file path")
+			return 1
+		}
+		path = a
+	}
+	if strings.TrimSpace(path) == "" {
+		fmt.Fprintln(stderr, "usage: nt-cli import [--dry-run] <file.json>")
+		return 1
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		fmt.Fprintf(stderr, "import read failed: %v\n", err)
+		return 1
+	}
+	res, err := svc.ImportJSON(data, dryRun)
+	if err != nil {
+		fmt.Fprintf(stderr, "import failed: %v\n", err)
+		return 1
+	}
+	prefix := "import"
+	if dryRun {
+		prefix = "import (dry-run)"
+	}
+	fmt.Fprintf(stdout, "%s: inserted=%d skipped=%d\n", prefix, res.Inserted, res.Skipped)
+	return 0
+}
+
 func runSession(svc *Service, args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
 		fmt.Fprintln(stderr, "usage: nt-cli session <start|end|summary> <id> [text]")
@@ -403,6 +456,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  nt-cli update <id> \"new content\"")
 	fmt.Fprintln(w, "  nt-cli delete <id>")
 	fmt.Fprintln(w, "  nt-cli session <start|end|summary> <id> [text]")
+	fmt.Fprintln(w, "  nt-cli import [--dry-run] <file.json>")
 	fmt.Fprintln(w, "  nt-cli mcp")
 }
 
