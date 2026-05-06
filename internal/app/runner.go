@@ -14,6 +14,18 @@ import (
 	"nt-cli/internal/parity"
 )
 
+// RunCLIWithStdin is the full-featured entry point that also accepts a stdin
+// reader so the autoswitch policy can be injected for testing. In production,
+// main.go calls this with os.Stdin. RunCLI delegates here with a nil stdin
+// (which falls back to os.Stdin inside the policy).
+func RunCLIWithStdin(svc *Service, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if len(args) >= 1 && IsMemoryCommand(args[0]) && svc != nil {
+		policy := NewDefaultAutoswitchPolicy(stdin, stdout)
+		ApplyAutoswitch(svc, policy)
+	}
+	return RunCLI(svc, args, stdout, stderr)
+}
+
 // RunCLI dispatches an nt-cli command using the provided Service and writes
 // human output to stdout / errors to stderr. It returns the process exit code
 // (0 on success, non-zero on validation, not-found, or unknown command).
