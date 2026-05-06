@@ -409,10 +409,17 @@ func (s *Service) SessionEnd(id string) error {
 			return err
 		}
 		if !hasSummary {
+			emitAutopilotEvent(autopilotDebugW, "session_end", "blocked", clean, "summary_required")
 			return ErrSummaryRequired
 		}
 	}
-	return sess.SessionEnd(clean, time.Now().UTC())
+	if err := sess.SessionEnd(clean, time.Now().UTC()); err != nil {
+		return err
+	}
+	if autopilotEnabled() {
+		emitAutopilotEvent(autopilotDebugW, "session_end", "ok", clean, "")
+	}
+	return nil
 }
 
 // SessionSummary appends a "summary" lifecycle row. Empty/whitespace-only
