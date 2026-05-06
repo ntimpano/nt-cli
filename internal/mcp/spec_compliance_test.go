@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// runbookPath returns the absolute path to docs/engram-offramp.md regardless
+// runbookPath returns the absolute path to docs/rollout-runbook.md regardless
 // of the package's working directory at test time.
 func runbookPath(t *testing.T) string {
 	t.Helper()
@@ -16,8 +16,8 @@ func runbookPath(t *testing.T) string {
 	if !ok {
 		t.Fatal("could not resolve caller path")
 	}
-	// internal/mcp/spec_compliance_test.go → ../../docs/engram-offramp.md
-	return filepath.Join(filepath.Dir(file), "..", "..", "docs", "engram-offramp.md")
+	// internal/mcp/spec_compliance_test.go → ../../docs/rollout-runbook.md
+	return filepath.Join(filepath.Dir(file), "..", "..", "docs", "rollout-runbook.md")
 }
 
 func readmePath(t *testing.T) string {
@@ -57,76 +57,50 @@ func containsAllNoCase(t *testing.T, hay string, needles []string, label string)
 
 // TestRunbook_FullCutoverDefault proves the spec scenarios under
 // "Full Cutover Default":
-//   - "Default profile is Engram-off": Engram tools MUST NOT be registered
-//     when no user override is set.
-//   - "Opt-in restores Engram": setting the documented opt-in flag MUST
-//     re-register Engram alongside nt-cli.
+//   - "Default profile makes nt-cli the canonical backend": the runbook
+//     MUST commit to nt-cli being the default in the full-cutover phase.
+//   - "Explicit opt-in path documented": setting the documented opt-in
+//     toggle MUST roll back to the shadow profile.
 //
 // The runbook is the authoritative artifact that encodes the cutover
 // contract for operators; this test asserts it documents BOTH halves of
-// the contract (off-by-default AND explicit opt-in to restore).
+// the contract (default-to-nt-cli AND explicit opt-in to roll back).
 func TestRunbook_FullCutoverDefault(t *testing.T) {
 	doc := loadFile(t, runbookPath(t))
 
-	t.Run("default profile ships with Engram off", func(t *testing.T) {
+	t.Run("default profile ships with nt-cli as the canonical backend", func(t *testing.T) {
 		// The Full cutover phase MUST be described and MUST commit to
-		// Engram tools being off in the default host profile.
+		// nt-cli being the canonical backend in the default host profile.
 		containsAllNoCase(t, doc, []string{
 			"full cutover",
 			"default host profile",
-			"engram",
+			"nt-cli",
+			"canonical",
 		}, "runbook full-cutover description")
-
-		// The runbook MUST state Engram is "off" / "not registered" /
-		// equivalent in the default profile. Accept any of the canonical
-		// phrasings to allow doc edits without breaking the test.
-		lower := strings.ToLower(doc)
-		offPhrasings := []string{
-			"engram memory tools off",
-			"engram memory tools are off",
-			"engram tools off",
-			"engram off",
-			"not registered",
-		}
-		hit := false
-		for _, p := range offPhrasings {
-			if strings.Contains(lower, p) {
-				hit = true
-				break
-			}
-		}
-		if !hit {
-			t.Fatalf("runbook MUST state Engram is off/not-registered in the default profile; none of %v found", offPhrasings)
-		}
 	})
 
-	t.Run("explicit opt-in restores Engram", func(t *testing.T) {
-		// The runbook MUST document the opt-in path (explicit flag /
-		// config change) that re-enables Engram.
+	t.Run("explicit opt-in documents the rollback toggle", func(t *testing.T) {
+		// The runbook MUST document the opt-in toggle that rolls the
+		// host back to the shadow configuration.
 		lower := strings.ToLower(doc)
-		// "opt-in" must appear AND it must be tied to restoring/enabling Engram.
 		if !strings.Contains(lower, "opt-in") {
-			t.Fatalf("runbook MUST document an explicit opt-in path to restore Engram; phrase not found")
+			t.Fatalf("runbook MUST document an explicit opt-in path; phrase not found")
 		}
-		// The runbook must also mention that the toggle is reversible /
-		// re-enables Engram, not just that it's "off forever".
-		restorePhrasings := []string{
-			"re-enabled",
-			"re-enable",
-			"restored",
-			"restore engram",
-			"opt-in flag",
-			"explicit opt-in",
+		// The toggle MUST be tied to the shadow / pilot profile so
+		// operators understand it is reversible, not "off forever".
+		togglePhrasings := []string{
+			"shadow",
+			"pilot",
+			"toggle",
 		}
-		hit := false
-		for _, p := range restorePhrasings {
+		hits := 0
+		for _, p := range togglePhrasings {
 			if strings.Contains(lower, p) {
-				hit = true
-				break
+				hits++
 			}
 		}
-		if !hit {
-			t.Fatalf("runbook MUST document how the opt-in restores/re-enables Engram; none of %v found", restorePhrasings)
+		if hits < 2 {
+			t.Fatalf("runbook MUST document the opt-in via the shadow/pilot toggle; needed at least 2 of %v", togglePhrasings)
 		}
 	})
 }
@@ -169,12 +143,12 @@ func TestRunbook_GateFailureBlocksAdvancement(t *testing.T) {
 	}
 }
 
-// TestRunbook_RollbackTriggersAndNonDestructive proves the spec scenarios
+// TestRunbook_RollbackTriggersAndScope proves the spec scenarios
 // under "Rollback Semantics":
 //   - "Rollback trigger fires": each documented trigger condition is named.
 //   - "DB corruption suspected": snapshot restore steps are present.
-//   - "Rollback is non-destructive to Engram": the runbook commits to it.
-func TestRunbook_RollbackTriggersAndNonDestructive(t *testing.T) {
+//   - "Rollback is scoped to nt-cli": the runbook commits to it.
+func TestRunbook_RollbackTriggersAndScope(t *testing.T) {
 	doc := loadFile(t, runbookPath(t))
 	lower := strings.ToLower(doc)
 
@@ -210,25 +184,25 @@ func TestRunbook_RollbackTriggersAndNonDestructive(t *testing.T) {
 		}
 	})
 
-	t.Run("rollback is non-destructive to Engram", func(t *testing.T) {
-		// MUST contain an explicit non-destructive guarantee.
+	t.Run("rollback is scoped to nt-cli", func(t *testing.T) {
+		// MUST contain an explicit scoping/non-destructive guarantee
+		// expressed in nt-cli-local terms (no external backend named).
 		// Accept several canonical phrasings.
-		nonDestructive := []string{
-			"non-destructive to engram",
-			"no engram data",
-			"no engram data is",
-			"no engram data must be modified",
-			"does not modify or delete",
+		scopePhrasings := []string{
+			"scoped to nt-cli",
+			"does not modify or delete data outside",
+			"reversible in a single edit",
+			"~/.nt-cli/",
 		}
 		hit := false
-		for _, p := range nonDestructive {
+		for _, p := range scopePhrasings {
 			if strings.Contains(lower, p) {
 				hit = true
 				break
 			}
 		}
 		if !hit {
-			t.Fatalf("runbook MUST state rollback is non-destructive to Engram; none of %v found", nonDestructive)
+			t.Fatalf("runbook MUST state the rollback is scoped to nt-cli; none of %v found", scopePhrasings)
 		}
 	})
 
@@ -316,8 +290,8 @@ func TestREADME_PhaseStatusAndRollbackTriggers(t *testing.T) {
 	}
 	// The rollback section must link to the runbook's rollback anchor so
 	// "the rollback trigger list MUST be linked from the same place" holds.
-	if !strings.Contains(doc, "engram-offramp.md#rollback-runbook") {
-		t.Fatalf("README rollback section MUST link to docs/engram-offramp.md#rollback-runbook")
+	if !strings.Contains(doc, "rollout-runbook.md#rollback-runbook") {
+		t.Fatalf("README rollback section MUST link to docs/rollout-runbook.md#rollback-runbook")
 	}
 }
 
@@ -362,19 +336,16 @@ func TestRunbook_SoakWindowDocumented(t *testing.T) {
 	}
 }
 
-// TestRunbook_ShadowSampleConfigShowsBothBackends proves the spec scenario
-// "Both backends registered": the runbook MUST publish a sample host
-// config snippet in which BOTH Engram and nt-cli are registered (so an
-// operator copy-pasting the snippet ends up in shadow mode by default,
-// not silently in pilot).
-func TestRunbook_ShadowSampleConfigShowsBothBackends(t *testing.T) {
+// TestRunbook_ShadowSampleConfigShowsToggle proves the spec scenario
+// "Sample config publishes shadow-by-default toggle": the runbook MUST
+// publish a sample host config snippet that registers `nt-cli`, names
+// `NTCLI_PROFILE=shadow` as the default, and illustrates the pilot
+// variant as the single-config-change rollback path.
+func TestRunbook_ShadowSampleConfigShowsToggle(t *testing.T) {
 	doc := loadFile(t, runbookPath(t))
 	lower := strings.ToLower(doc)
 
-	// The sample snippet block MUST register both servers.
-	if !strings.Contains(lower, "\"engram\"") {
-		t.Fatalf("runbook sample config MUST register an \"engram\" MCP server entry")
-	}
+	// The sample snippet block MUST register the ntcli MCP entry.
 	if !strings.Contains(lower, "\"ntcli\"") {
 		t.Fatalf("runbook sample config MUST register an \"ntcli\" MCP server entry")
 	}
@@ -387,7 +358,7 @@ func TestRunbook_ShadowSampleConfigShowsBothBackends(t *testing.T) {
 
 	// And the toggle to flip to pilot MUST be a single-config-change
 	// affordance (commented variant or equivalent), per spec
-	// "the toggle to restore Engram MUST be a single documented config change".
+	// "the toggle MUST be a single documented config change".
 	if !strings.Contains(lower, "pilot") {
 		t.Fatalf("runbook sample config MUST illustrate the pilot variant as the single-toggle path")
 	}
