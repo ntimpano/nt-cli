@@ -792,7 +792,7 @@ func toolsListResult() map[string]interface{} {
 		"tools": []map[string]interface{}{
 			{
 				"name":        "local_save",
-				"description": "Guarda una nota local en SQLite (local-only; no usa Engram).",
+				"description": "Guarda una nota local en SQLite (local-only; no usa backend externo).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -807,7 +807,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_recall",
-				"description": "Busca notas locales por texto en SQLite (local-only; no consulta Engram). Acepta filtros opcionales por type y rango de fechas (since/until).",
+				"description": "Busca notas locales por texto en SQLite (local-only; no consulta backend externo). Acepta filtros opcionales por type y rango de fechas (since/until).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -822,7 +822,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_context",
-				"description": "Devuelve las N notas más recientes desde SQLite (local-only; no consulta Engram). Acepta filtro opcional por scope.",
+				"description": "Devuelve las N notas más recientes desde SQLite (local-only; no consulta backend externo). Acepta filtro opcional por scope.",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -833,7 +833,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_list",
-				"description": "Lista notas recientes desde SQLite (local-only; no incluye Engram).",
+				"description": "Lista notas recientes desde SQLite (local-only; no incluye backend externo).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -843,7 +843,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_delete",
-				"description": "Elimina una nota local por id en SQLite (local-only; no afecta Engram).",
+				"description": "Elimina una nota local por id en SQLite (local-only; no afecta backend externo).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -854,7 +854,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_get",
-				"description": "Obtiene una nota local por id desde SQLite (local-only; no consulta Engram).",
+				"description": "Obtiene una nota local por id desde SQLite (local-only; no consulta backend externo).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -865,7 +865,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_update",
-				"description": "Actualiza el contenido de una nota local por id en SQLite (local-only; no afecta Engram).",
+				"description": "Actualiza el contenido de una nota local por id en SQLite (local-only; no afecta backend externo).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -877,7 +877,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_session_start",
-				"description": "Marca el inicio de una sesión en el log local SQLite (local-only; no afecta Engram).",
+				"description": "Marca el inicio de una sesión en el log local SQLite (local-only; no afecta backend externo).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -888,7 +888,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_session_end",
-				"description": "Marca el cierre de una sesión en el log local SQLite (local-only; no afecta Engram).",
+				"description": "Marca el cierre de una sesión en el log local SQLite (local-only; no afecta backend externo).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -899,7 +899,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_session_summary",
-				"description": "Adjunta un resumen a una sesión en el log local SQLite (local-only; no afecta Engram).",
+				"description": "Adjunta un resumen a una sesión en el log local SQLite (local-only; no afecta backend externo).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -911,7 +911,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_import",
-				"description": "Importa observaciones desde un archivo JSON al store local SQLite (local-only; no afecta Engram). Idempotente: deduplica por (topic_key, hash de content).",
+				"description": "Importa observaciones desde un archivo JSON al store local SQLite (local-only; no afecta backend externo). Idempotente: deduplica por (topic_key, hash de content).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -923,7 +923,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_backup",
-				"description": "Crea un snapshot portable de la base local SQLite en la ruta indicada (local-only; no afecta Engram). Usa VACUUM INTO atómico.",
+				"description": "Crea un snapshot portable de la base local SQLite en la ruta indicada (local-only; no afecta backend externo). Usa VACUUM INTO atómico.",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -934,7 +934,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_restore",
-				"description": "Restaura la base local SQLite desde un snapshot previamente creado (local-only; no afecta Engram). Sobrescribe la base activa.",
+				"description": "Restaura la base local SQLite desde un snapshot previamente creado (local-only; no afecta backend externo). Sobrescribe la base activa.",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
@@ -945,7 +945,7 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_doctor",
-				"description": "Diagnóstico read-only del store local SQLite (local-only; no afecta Engram). Reporta schema_version, salud de FTS5, integrity_check y row counts en una línea de resumen.",
+				"description": "Diagnóstico read-only del store local SQLite (local-only; no afecta backend externo). Reporta schema_version, salud de FTS5, integrity_check y row counts en una línea de resumen.",
 				"inputSchema": map[string]interface{}{
 					"type":       "object",
 					"properties": map[string]interface{}{},

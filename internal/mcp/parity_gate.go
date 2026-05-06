@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// Parity readiness gates for the Engram offramp. These helpers are pure
+// Parity readiness gates for the nt-cli rollout. These helpers are pure
 // functions over already-collected data so they can be unit-tested in
 // isolation and reused by integration tests that drive the live MCP
 // surface. Each gate returns (ok, message): when ok is false, message

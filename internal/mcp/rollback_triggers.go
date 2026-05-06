@@ -5,7 +5,7 @@ import "strings"
 // RollbackTrigger names a documented condition under which the operator
 // MUST execute the rollback runbook. The Name is the short label used in
 // alerts and post-mortems; RunbookKeyword is the substring guaranteed to
-// appear in docs/engram-offramp.md so code and runbook stay in lockstep.
+// appear in docs/rollout-runbook.md so code and runbook stay in lockstep.
 //
 // Adding a new trigger requires updating BOTH the runbook AND the slice
 // returned by RollbackTriggers(); the spec_compliance_test asserts the

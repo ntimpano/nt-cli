@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
 # opencode-mcp-dev.sh — launch the nt-cli MCP server for OpenCode (dev mode).
 #
-# Host profile toggle (engram offramp):
-#   NTCLI_PROFILE=shadow  (default) Engram and nt-cli memory tools both
-#                         registered on the host. Use during shadow phase.
-#   NTCLI_PROFILE=pilot   Pilot host profile: Engram memory tools are NOT
-#                         registered; nt-cli is the sole memory backend.
+# Host profile toggle (nt-cli rollout):
+#   NTCLI_PROFILE=shadow  (default) Safe shadow profile used during the
+#                         rollout's shadow phase.
+#   NTCLI_PROFILE=pilot   Pilot host profile: nt-cli is the canonical
+#                         memory backend on the host.
 #
-# The actual on/off of Engram tools is governed by the OpenCode MCP host
-# config (which servers it loads). This wrapper records the resolved
-# profile in stderr so the active configuration is observable in logs and
-# verifiable from tests. See docs/engram-offramp.md for the full runbook.
+# This wrapper records the resolved profile in stderr so the active
+# configuration is observable in logs and verifiable from tests. See
+# docs/rollout-runbook.md for the full runbook.
 #
 # Flags / dev hooks:
 #   --print-profile        Print the resolved profile to stdout and exit 0.

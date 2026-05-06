@@ -7,10 +7,10 @@ import (
 )
 
 // TestToolDescriptions_MarkLocalOnly proves the spec scenario
-// "Both backends registered → nt-cli tools MUST be marked as local-only in
-// their metadata". Each advertised local_* tool description MUST identify
-// the tool as local-only AND disambiguate it from Engram so that hosts
-// running both backends in shadow mode can tell them apart.
+// "nt-cli tools MUST be marked as local-only in their metadata". Each
+// advertised local_* tool description MUST identify the tool as
+// local-only AND state it does not depend on any external backend so
+// hosts running multiple memory backends can tell them apart.
 func TestToolDescriptions_MarkLocalOnly(t *testing.T) {
 	tools := advertisedTools(t)
 
@@ -43,10 +43,12 @@ func TestToolDescriptions_MarkLocalOnly(t *testing.T) {
 			t.Fatalf("tool %q description must mark it as local-only or mention local SQLite, got %q", name, desc)
 		}
 
-		// MUST disambiguate from Engram so shadow-mode hosts can tell
-		// nt-cli tools apart from Engram memory tools.
-		if !strings.Contains(lower, "engram") {
-			t.Fatalf("tool %q description must disambiguate from Engram (mention engram/no engram), got %q", name, desc)
+		// MUST state the tool does not depend on any external backend so
+		// shadow-mode hosts can tell nt-cli tools apart from sibling
+		// memory tools.
+		if !strings.Contains(lower, "backend externo") &&
+			!strings.Contains(lower, "external backend") {
+			t.Fatalf("tool %q description must disambiguate from external backends (mention backend externo/external backend), got %q", name, desc)
 		}
 	}
 }

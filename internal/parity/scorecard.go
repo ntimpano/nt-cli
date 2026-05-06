@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-// Parity scorecard contract for the Engram offramp (spec capability:
+// Parity scorecard contract for the nt-cli rollout (spec capability:
 // parity-scorecard). The scorecard quantifies "100% practical parity"
 // as a weighted score over 7 dimensions with critical-floor enforcement
 // and a 14-day soak window. The version field stamps the contract so
