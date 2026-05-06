@@ -133,6 +133,20 @@ type RecallOptions struct {
 	Since time.Time
 	Until time.Time
 	Limit int
+
+	// IncludeSuperseded opts back into rows that have been superseded
+	// by another row (predecessors of a `supersedes` edge). When false
+	// (default) RecallGraphAware suppresses them so the surface only
+	// shows current revisions. The plain Recall / RecallFiltered paths
+	// ignore this field — supersedes-aware filtering is exclusive to
+	// the graph-aware path.
+	IncludeSuperseded bool
+
+	// GraphAware requests the graph-aware ranking path. Wired by the
+	// service layer based on the NTCLI_FF_GRAPH feature flag — the
+	// store reads it directly so legacy fakes that don't implement
+	// graph capability never see this option engaged.
+	GraphAware bool
 }
 
 // SaveRequest carries the optional metadata fields accepted by the M1 save
