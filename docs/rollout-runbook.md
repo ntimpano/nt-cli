@@ -1,8 +1,7 @@
-# Engram Offramp Runbook
+# nt-cli Rollout Runbook
 
-> Operational runbook for migrating off Engram as the memory backend and
-> using `nt-cli` as the sole local memory surface. Read this start to finish
-> before advancing between phases.
+> Operational runbook for rolling out `nt-cli` as the local memory surface.
+> Read this start to finish before advancing between phases.
 
 **Current phase**: shadow
 
@@ -14,39 +13,41 @@
 | Check if you can advance to the next phase | [Readiness gates (G1–G6)](#readiness-gates-g1g6) |
 | Roll back right now | [Rollback runbook](#rollback-runbook) |
 | Turn on debug logs for an MCP failure | [Observability: `NTCLI_MCP_DEBUG`](#observability-ntcli_mcp_debug) |
-| Confirm the offramp is done | [Exit criteria checklist](#exit-criteria-checklist) |
+| Confirm the rollout is done | [Exit criteria checklist](#exit-criteria-checklist) |
 
 ## Phases
 
-The offramp ships in three phases. **Do not skip a phase.** Each phase has
+The rollout ships in three phases. **Do not skip a phase.** Each phase has
 preconditions in the readiness gate table below.
 
 ### 1. Shadow
 
-Both Engram memory tools and `nt-cli` memory tools are registered on the MCP
-host. Agents keep their existing habits; `nt-cli` is exercised in parallel.
-No behavior change for end users.
+`nt-cli` memory tools are registered on the MCP host and exercised in
+parallel with the operator's existing habits. No behavior change for end
+users.
 
-- Goal: collect parity evidence and surface gaps without risk.
+- Goal: collect evidence and surface gaps without risk.
 - Exit: G1, G2, G3, G5, G6 all green → advance to **Partial**.
 
 ### 2. Partial cutover (pilot)
 
-A pilot host profile disables Engram memory tools. `nt-cli` is the only memory
-surface for pilot agents during the soak window. Engram remains one config
+A pilot host profile makes `nt-cli` the only memory surface for pilot
+agents during the soak window. The shadow profile remains one config
 toggle away as an escape hatch.
 
-- Goal: prove the system works without Engram for a sustained window.
+- Goal: prove the system works end-to-end on `nt-cli` alone for a
+  sustained window.
 - Soak window: minimum **7 calendar days** with zero rollback triggers.
 - Exit: G3, G4 green → advance to **Full**.
 
 ### 3. Full cutover (default)
 
-The default host profile ships with Engram memory tools off. `nt-cli` is the
-canonical backend. Engram is re-enabled only via an explicit, documented
-opt-in flag.
+The default host profile ships with `nt-cli` as the canonical memory
+backend. The pilot profile is documented as the single explicit opt-in
+path operators can use to roll back to the shadow configuration.
 
-- Goal: make `nt-cli` the default and Engram an opt-in.
+- Goal: make `nt-cli` the default and keep the rollback toggle available
+  as an explicit opt-in.
 
 ## Readiness gates (G1–G6)
 
@@ -59,7 +60,7 @@ for that transition is not green.
 | G2 Operation parity | Shadow → Partial | save/recall/list/get/update/delete succeed on CLI + MCP for sample N≥10 | Manual checklist below |
 | G3 Backup verified | Any → Next | `~/.nt-cli/data.db` snapshot exists and restore tested once | `cp` snapshot + dry-run restore |
 | G4 Soak clean | Partial → Full | Pilot soak window completes with zero rollback triggers fired | Operator log review |
-| G5 Docs published | Shadow → Partial | README "Engram Offramp" + this runbook merged | `git log` |
+| G5 Docs published | Shadow → Partial | README "Rollout" + this runbook merged | `git log` |
 | G6 Observability ready | Shadow → Partial | `NTCLI_MCP_DEBUG` path documented and produces logs on failure | See [`NTCLI_MCP_DEBUG`](#observability-ntcli_mcp_debug) |
 
 If any required gate is not satisfied, **hold at the current phase** and name
@@ -68,9 +69,10 @@ parity_test.go reports missing tool `local_get`").
 
 ## Parity scorecard
 
-The parity scorecard quantifies "100% practical parity" as a weighted score.
-The scorecard **verdict** supersedes binary G1/G2 when both are present;
-**G3–G6 remain independent preconditions** that must still be green.
+The parity scorecard quantifies "100% practical readiness" as a weighted
+score. The scorecard **verdict** supersedes binary G1/G2 when both are
+present; **G3–G6 remain independent preconditions** that must still be
+green.
 
 ### Dimensions and weights
 
@@ -186,16 +188,17 @@ correct answer still beats a fast wrong one.
 ## Host profile toggle (`NTCLI_PROFILE`)
 
 The wrapper at `scripts/opencode-mcp-dev.sh` reads a single env var,
-`NTCLI_PROFILE`, that names the active host profile. The wrapper does **not**
-itself enable or disable Engram — the actual on/off is governed by the
-OpenCode MCP host config (which MCP servers it registers). The profile is
-the operator-visible label that records *which* configuration is in effect
-and makes it verifiable from tests and logs.
+`NTCLI_PROFILE`, that names the active host profile. The wrapper does
+**not** itself enable or disable any backend — the actual on/off is
+governed by the OpenCode MCP host config (which MCP servers it
+registers). The profile is the operator-visible label that records
+*which* configuration is in effect and makes it verifiable from tests
+and logs.
 
-| Profile | Engram memory tools | nt-cli memory tools | Use during |
-|---------|---------------------|---------------------|------------|
-| `shadow` (default) | registered | registered | Shadow phase |
-| `pilot` | not registered | registered | Partial cutover |
+| Profile | nt-cli memory tools | Use during |
+|---------|---------------------|------------|
+| `shadow` (default) | registered alongside any pre-existing memory tools | Shadow phase |
+| `pilot` | registered as the sole memory surface | Partial cutover |
 
 ### Toggling at the host
 
@@ -204,20 +207,17 @@ The toggle is a **single config change** in `~/.config/opencode/opencode.json`.
 ```jsonc
 {
   "mcp": {
-    // Default / shadow profile: keep Engram registered alongside nt-cli.
-    "engram": {
-      "type": "local",
-      "command": ["/path/to/engram", "mcp"]
-    },
+    // Default / shadow profile: nt-cli runs alongside any other memory
+    // tools the operator already has registered.
     "ntcli": {
       "type": "local",
       "command": ["/opt/nt-cli/scripts/opencode-mcp-dev.sh"],
       "environment": { "NTCLI_PROFILE": "shadow" }
     }
 
-    // Pilot profile (Engram-off): comment out the "engram" entry above
-    // AND set NTCLI_PROFILE=pilot below. nt-cli becomes the sole memory
-    // surface. Reconnect OpenCode for the change to take effect.
+    // Pilot profile: switch NTCLI_PROFILE to pilot below and remove any
+    // other memory MCP entries from this file. nt-cli becomes the sole
+    // memory surface. Reconnect OpenCode for the change to take effect.
     //
     // "ntcli": {
     //   "type": "local",
@@ -246,9 +246,10 @@ profile.
 
 ### Rollback via the toggle
 
-A rollback from pilot to shadow is one config change: re-add the `engram`
-entry and set `NTCLI_PROFILE=shadow` (or remove the env var). Reconnect
-OpenCode. No nt-cli or Engram data is touched.
+A rollback from pilot to shadow is one config change: set
+`NTCLI_PROFILE=shadow` (or remove the env var) and re-add any sibling
+MCP entries you removed. Reconnect OpenCode. No `nt-cli` data is
+touched by toggling the profile.
 
 ## Observability: `NTCLI_MCP_DEBUG`
 
@@ -282,8 +283,9 @@ behaves identically to the default profile.
 ## Rollback runbook
 
 Execute this procedure end-to-end when any rollback trigger fires. The
-procedure is **non-destructive to Engram** — no Engram data is modified or
-deleted by `nt-cli` or by these steps.
+procedure is **scoped to nt-cli only** — it does not modify or delete
+data outside of `~/.nt-cli/`, and the host-config change is reversible
+in a single edit.
 
 ### Triggers (any one of these → roll back)
 
@@ -294,8 +296,9 @@ deleted by `nt-cli` or by these steps.
 
 ### Steps
 
-1. **Restore the prior MCP host profile** (Engram memory tools enabled).
-   - Revert the host config change to the previous Engram-on profile.
+1. **Restore the prior MCP host profile** (shadow profile with sibling
+   memory tools, if any, re-registered).
+   - Revert the host config change to the previous shadow configuration.
    - Reconnect / reload the MCP host so it relaunches the MCP process.
 2. **Restore the DB snapshot only if corruption is suspected.**
    ```bash
@@ -309,7 +312,7 @@ deleted by `nt-cli` or by these steps.
    ```
 4. **Save a post-mortem note** via `nt-cli`:
    ```bash
-   nt-cli save "Engram offramp rollback <date>: trigger=<...>; cause=<...>; action=<...>"
+   nt-cli save "rollback <date>: trigger=<...>; cause=<...>; action=<...>"
    ```
 
 If parity is still red after step 3, stop and escalate before any further
@@ -317,14 +320,14 @@ phase work.
 
 ## Exit criteria checklist
 
-The offramp is **done** when every box below is checked. This mirrors the
+The rollout is **done** when every box below is checked. This mirrors the
 proposal's Definition of Done.
 
-- [ ] Capability parity verified: save/recall/list/get/update/delete on CLI + MCP.
+- [ ] Capability readiness verified: save/recall/list/get/update/delete on CLI + MCP.
 - [ ] `internal/mcp/parity_test.go` green, including the required-tool-set assertion.
-- [ ] Reversible migration path documented (backup + rollback).
-- [ ] Soak window completed with Engram tools disabled in a host profile.
+- [ ] Reversible rollout path documented (backup + rollback).
+- [ ] Soak window completed with the pilot host profile in effect.
 - [ ] `NTCLI_MCP_DEBUG` observability path documented and produces logs on failure.
-- [ ] README "Engram Offramp" section + this runbook published.
-- [ ] Default host profile ships with Engram memory tools off; opt-in path documented.
+- [ ] README "Rollout" section + this runbook published.
+- [ ] Default host profile ships with `nt-cli` as the canonical backend; pilot/shadow opt-in path documented.
 - [ ] Rollback trigger list is discoverable from the README.

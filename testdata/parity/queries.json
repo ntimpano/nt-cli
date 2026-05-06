@@ -15,9 +15,9 @@
     "note": "Architecture row defining the parity scorecard contract"
   },
   {
-    "query": "engram offramp phase",
-    "expected_marker": "offramp",
-    "note": "Runbook entry on the engram offramp phases"
+    "query": "rollout phase",
+    "expected_marker": "rollout",
+    "note": "Runbook entry on the nt-cli rollout phases"
   },
   {
     "query": "session lifecycle hook",
