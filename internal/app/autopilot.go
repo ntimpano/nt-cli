@@ -19,6 +19,54 @@ import (
 	"time"
 )
 
+// autopilotDebugEnabled reports whether the operator opted into the
+// PR7 autopilot debug stream via NTCLI_AUTOPILOT_DEBUG=1. Same opt-in
+// shape as NTCLI_MCP_DEBUG so operators reach for one habit.
+func autopilotDebugEnabled() bool {
+	v := strings.TrimSpace(os.Getenv("NTCLI_AUTOPILOT_DEBUG"))
+	return v == "1"
+}
+
+// formatAutopilotEvent renders a single key=value line documenting an
+// autopilot lifecycle decision (e.g. session_end allowed vs blocked).
+// The line is grep-friendly:
+//
+//	ntcli-autopilot event=<name> status=<ok|blocked> session=<id> [reason=<r>]
+//
+// session ids containing whitespace are quoted so the line stays
+// parseable. reason is omitted entirely when empty so the default
+// success case stays compact. Pure function — easy to unit-test
+// without touching env or stderr.
+func formatAutopilotEvent(event, status, sessionID, reason string) string {
+	sess := sessionID
+	if strings.ContainsAny(sess, " \t") {
+		sess = `"` + sess + `"`
+	}
+	if strings.TrimSpace(reason) == "" {
+		return fmt.Sprintf("ntcli-autopilot event=%s status=%s session=%s\n",
+			event, status, sess)
+	}
+	return fmt.Sprintf("ntcli-autopilot event=%s status=%s session=%s reason=%s\n",
+		event, status, sess, reason)
+}
+
+// emitAutopilotEvent writes a formatted autopilot event to w when
+// NTCLI_AUTOPILOT_DEBUG=1; otherwise it is a silent no-op. Production
+// callers pass os.Stderr so the line lands next to other MCP debug
+// output; tests pass a bytes.Buffer for inspection.
+func emitAutopilotEvent(w io.Writer, event, status, sessionID, reason string) {
+	if !autopilotDebugEnabled() {
+		return
+	}
+	_, _ = io.WriteString(w, formatAutopilotEvent(event, status, sessionID, reason))
+}
+
+// autopilotDebugW is the sink the Service uses for autopilot debug
+// events. Defaults to os.Stderr so production deployments emit next
+// to other MCP debug output. Tests swap in a bytes.Buffer to assert
+// on the emitted lines without touching the real stderr.
+var autopilotDebugW io.Writer = os.Stderr
+
 // ErrSummaryRequired is the sentinel returned by SessionEnd when the
 // autopilot guard fires. The CLI maps it to exit code 2 and a human
 // message containing the literal token `summary_required` so scripts
