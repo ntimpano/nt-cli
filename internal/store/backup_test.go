@@ -73,6 +73,36 @@ func TestBackup_RestoreRoundTrip(t *testing.T) {
 			t.Fatalf("alpha metadata lost: %+v", r)
 		}
 	}
+
+	// Spec scenario: "Round-trip preserves recall output" — identical
+	// recall queries on S1 and S2 MUST return identical ordered results.
+	// We compare by (id, content, title, topic_key) tuple-by-tuple so any
+	// drift in row identity, ordering, or metadata fails loudly.
+	for _, q := range []string{"alpha", "beta"} {
+		srcHits, err := src.Recall(q, 10)
+		if err != nil {
+			t.Fatalf("src recall %q: %v", q, err)
+		}
+		dstHits, err := dst.Recall(q, 10)
+		if err != nil {
+			t.Fatalf("dst recall %q: %v", q, err)
+		}
+		if len(srcHits) != len(dstHits) {
+			t.Fatalf("recall %q length drift: src=%d dst=%d", q, len(srcHits), len(dstHits))
+		}
+		for i := range srcHits {
+			if srcHits[i].ID != dstHits[i].ID ||
+				srcHits[i].Content != dstHits[i].Content ||
+				srcHits[i].Title != dstHits[i].Title ||
+				srcHits[i].TopicKey != dstHits[i].TopicKey {
+				t.Fatalf("recall %q row %d differs:\n src=%+v\n dst=%+v",
+					q, i, srcHits[i], dstHits[i])
+			}
+		}
+		if len(srcHits) == 0 {
+			t.Fatalf("recall %q returned no hits on src; expected at least one match", q)
+		}
+	}
 }
 
 // TestBackup_RejectsMissingDir guards a clear error when the destination

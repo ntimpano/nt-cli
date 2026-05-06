@@ -335,3 +335,148 @@ func TestInit_LegacyDBSnapshotsBackupBeforeMigration(t *testing.T) {
 		t.Fatalf("re-running Init must NOT create another snapshot: before=%d after=%d", beforeCount, len(entries2))
 	}
 }
+
+// TestInit_MigrationFailureLeavesDBUntouched proves spec scenario
+// "Migration failure leaves DB untouched": a forced error mid-transaction
+// MUST roll back so schema_version stays unchanged and the pre-migration
+// snapshot remains on disk as the rollback source.
+//
+// Strategy: seed a legacy DB (no schema_version row, only the v0
+// memory_items shape) and install a BEFORE UPDATE trigger named
+// `legacy_block_update` that RAISE(ABORT)s. The migration's backfill
+// `UPDATE memory_items SET updated_at = created_at WHERE updated_at IS NULL`
+// runs INSIDE the transaction (after the snapshot, before schema_version
+// is stamped) and will fire that trigger, forcing a tx rollback.
+//
+// Post-conditions verified:
+//  1. Init returns an error.
+//  2. schema_version stays at 0 (no row inserted by the rolled-back tx).
+//  3. The new `sessions` table is NOT present (proves additive M3 step
+//     was rolled back too — DB really is untouched, not just schema_version).
+//  4. The pre-migration snapshot file IS present on disk so the user
+//     has a recovery artifact.
+//  5. The legacy row is still readable on the original DB.
+func TestInit_MigrationFailureLeavesDBUntouched(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "legacy.db")
+	backupDir := filepath.Join(dir, "backups")
+
+	// Seed legacy DB with v0 schema + one row.
+	old, err := NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("open old: %v", err)
+	}
+	if _, err := old.db.Exec(`
+		CREATE TABLE memory_items (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			content TEXT NOT NULL,
+			created_at DATETIME NOT NULL,
+			updated_at DATETIME
+		);
+	`); err != nil {
+		t.Fatalf("create legacy schema: %v", err)
+	}
+	created := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+	if _, err := old.db.Exec(
+		`INSERT INTO memory_items(content, created_at, updated_at) VALUES(?, ?, NULL)`,
+		"legacy note", created.Format(time.RFC3339),
+	); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	// Install a non-FTS trigger so the migration's DROP TRIGGER IF EXISTS
+	// for memory_items_ai/ad/au won't remove it. The migration's backfill
+	// UPDATE will fire it and RAISE(ABORT) inside the transaction.
+	if _, err := old.db.Exec(`
+		CREATE TRIGGER legacy_block_update
+		BEFORE UPDATE ON memory_items
+		BEGIN
+			SELECT RAISE(ABORT, 'forced migration failure');
+		END;
+	`); err != nil {
+		t.Fatalf("install blocking trigger: %v", err)
+	}
+	if err := old.Close(); err != nil {
+		t.Fatalf("close old: %v", err)
+	}
+
+	// Reopen with new code — Init MUST fail mid-migration.
+	upgraded, err := NewSQLiteStore(dbPath)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	upgraded.SetBackupDir(backupDir)
+	defer upgraded.Close()
+	err = upgraded.Init()
+	if err == nil {
+		t.Fatalf("expected Init to fail when migration trigger aborts; got nil")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "forced migration failure") &&
+		!strings.Contains(strings.ToLower(err.Error()), "abort") {
+		t.Fatalf("expected error to surface trigger abort, got: %v", err)
+	}
+
+	// schema_version MUST be unchanged (still 0 — the INSERT inside the
+	// rolled-back tx never landed). The bootstrap CREATE TABLE
+	// schema_version runs OUTSIDE the tx so the table itself exists, but
+	// it MUST be empty.
+	var versionRows int
+	if err := upgraded.db.QueryRow(
+		`SELECT COUNT(*) FROM schema_version`,
+	).Scan(&versionRows); err != nil {
+		t.Fatalf("read schema_version count: %v", err)
+	}
+	if versionRows != 0 {
+		t.Fatalf("schema_version must be empty after failed migration, got %d rows", versionRows)
+	}
+	v, err := upgraded.SchemaVersion()
+	if err != nil {
+		t.Fatalf("SchemaVersion: %v", err)
+	}
+	if v != 0 {
+		t.Fatalf("schema version must be 0 after rollback, got %d", v)
+	}
+
+	// The new `sessions` table created INSIDE the tx MUST NOT exist —
+	// this proves the rollback was real, not just schema_version-shaped.
+	var sessionsName string
+	err = upgraded.db.QueryRow(
+		`SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'`,
+	).Scan(&sessionsName)
+	if err == nil {
+		t.Fatalf("`sessions` table must NOT exist after rolled-back migration, found %q", sessionsName)
+	}
+
+	// Snapshot file MUST still be present on disk as the rollback source.
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		t.Fatalf("read backups: %v", err)
+	}
+	var snapshotFound bool
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "pre-migration-") && strings.HasSuffix(e.Name(), ".db") {
+			info, err := e.Info()
+			if err != nil {
+				t.Fatalf("snapshot info: %v", err)
+			}
+			if info.Size() == 0 {
+				t.Fatalf("snapshot %s exists but is empty", e.Name())
+			}
+			snapshotFound = true
+			break
+		}
+	}
+	if !snapshotFound {
+		t.Fatalf("expected a pre-migration-*.db snapshot in %s, got %v", backupDir, entries)
+	}
+
+	// Legacy row MUST still be readable on the original DB (untouched).
+	var content string
+	if err := upgraded.db.QueryRow(
+		`SELECT content FROM memory_items WHERE id = 1`,
+	).Scan(&content); err != nil {
+		t.Fatalf("read legacy row after rollback: %v", err)
+	}
+	if content != "legacy note" {
+		t.Fatalf("legacy content corrupted after rollback: %q", content)
+	}
+}
