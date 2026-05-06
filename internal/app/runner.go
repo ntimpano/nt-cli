@@ -330,6 +330,30 @@ func RunCLI(svc *Service, args []string, stdout, stderr io.Writer) int {
 	case "import":
 		return runImport(svc, args[1:], stdout, stderr)
 
+	case "backup":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "usage: nt-cli backup <path>")
+			return 1
+		}
+		if err := svc.Backup(args[1]); err != nil {
+			fmt.Fprintf(stderr, "backup failed: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "backup written to %s\n", args[1])
+		return 0
+
+	case "restore":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "usage: nt-cli restore <path>")
+			return 1
+		}
+		if err := svc.Restore(args[1]); err != nil {
+			fmt.Fprintf(stderr, "restore failed: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "restored from %s\n", args[1])
+		return 0
+
 	default:
 		printUsage(stdout)
 		return 1
@@ -457,6 +481,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  nt-cli delete <id>")
 	fmt.Fprintln(w, "  nt-cli session <start|end|summary> <id> [text]")
 	fmt.Fprintln(w, "  nt-cli import [--dry-run] <file.json>")
+	fmt.Fprintln(w, "  nt-cli backup <path>")
+	fmt.Fprintln(w, "  nt-cli restore <path>")
 	fmt.Fprintln(w, "  nt-cli mcp")
 }
 

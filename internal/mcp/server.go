@@ -104,6 +104,10 @@ type localImportArgs struct {
 	DryRun bool   `json:"dry_run,omitempty"`
 }
 
+type localPathArgs struct {
+	Path string `json:"path"`
+}
+
 type initializeParams struct {
 	ProtocolVersion string `json:"protocolVersion"`
 }
@@ -477,6 +481,26 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				}
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("%s: inserted=%d skipped=%d", prefix, res.Inserted, res.Skipped))}, true
 
+			case "local_backup":
+				var args localPathArgs
+				if err := json.Unmarshal(params.Arguments, &args); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+				}
+				if err := svc.Backup(args.Path); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("backup written to %s", strings.TrimSpace(args.Path)))}, true
+
+			case "local_restore":
+				var args localPathArgs
+				if err := json.Unmarshal(params.Arguments, &args); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+				}
+				if err := svc.Restore(args.Path); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("restored from %s", strings.TrimSpace(args.Path)))}, true
+
 			default:
 				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "tool not found"}}, true
 			}
@@ -734,6 +758,28 @@ func toolsListResult() map[string]interface{} {
 					"properties": map[string]interface{}{
 						"path":    map[string]interface{}{"type": "string"},
 						"dry_run": map[string]interface{}{"type": "boolean"},
+					},
+					"required": []string{"path"},
+				},
+			},
+			{
+				"name":        "local_backup",
+				"description": "Crea un snapshot portable de la base local SQLite en la ruta indicada (local-only; no afecta Engram). Usa VACUUM INTO atómico.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"path": map[string]interface{}{"type": "string"},
+					},
+					"required": []string{"path"},
+				},
+			},
+			{
+				"name":        "local_restore",
+				"description": "Restaura la base local SQLite desde un snapshot previamente creado (local-only; no afecta Engram). Sobrescribe la base activa.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"path": map[string]interface{}{"type": "string"},
 					},
 					"required": []string{"path"},
 				},

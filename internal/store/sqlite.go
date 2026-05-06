@@ -909,3 +909,113 @@ func contentHash(content string) string {
 	sum := sha256.Sum256([]byte(content))
 	return hex.EncodeToString(sum[:])
 }
+
+// Backup writes a portable, self-contained snapshot of the live database
+// to dst using SQLite's `VACUUM INTO` — atomic, schema-aware, and safe
+// to run while connections are open. The destination file MUST NOT exist
+// (VACUUM INTO refuses to overwrite); callers should pick a fresh path
+// with a timestamp suffix per `pre-migration-<ts>.db` convention.
+//
+// Errors:
+//   - parent directory missing  -> bubble up the OS error verbatim
+//   - destination already exists -> SQLite error (caller should rename)
+//   - any I/O fault              -> rollback is automatic; live DB untouched
+func (s *SQLiteStore) Backup(dst string) error {
+	if strings.TrimSpace(dst) == "" {
+		return errors.New("backup destination is empty")
+	}
+	// Validate parent dir exists so we surface a clear error instead of
+	// SQLite's terse "unable to open database file".
+	if _, err := os.Stat(filepath.Dir(dst)); err != nil {
+		return fmt.Errorf("backup destination dir: %w", err)
+	}
+	// VACUUM INTO requires a string literal; use parameter substitution
+	// at the Go layer (path can contain quotes only on weird filesystems
+	// — we escape defensively).
+	escaped := strings.ReplaceAll(dst, "'", "''")
+	if _, err := s.db.Exec(fmt.Sprintf("VACUUM INTO '%s'", escaped)); err != nil {
+		return fmt.Errorf("vacuum into: %w", err)
+	}
+	return nil
+}
+
+// Restore replaces the live database file with the contents of src by
+// closing the active connection, copying bytes, and reopening. The
+// caller is responsible for re-running Init() afterwards if the schema
+// version of the artifact is older than CurrentSchemaVersion — Init is
+// forward-only and will migrate transparently.
+//
+// Errors:
+//   - src missing      -> os.Stat error before mutation
+//   - copy failure     -> live DB is restored from a temp side-copy taken
+//                         before the swap, so a half-failed restore does
+//                         not leave the user with no DB at all
+func (s *SQLiteStore) Restore(src string) error {
+	if strings.TrimSpace(src) == "" {
+		return errors.New("restore source is empty")
+	}
+	if _, err := os.Stat(src); err != nil {
+		return fmt.Errorf("restore source: %w", err)
+	}
+	live := s.dbPath
+	if strings.TrimSpace(live) == "" {
+		return errors.New("store has no on-disk path; cannot restore")
+	}
+	// Take a side-copy of the live DB so we can roll back if the restore
+	// copy fails mid-way. Same dir to avoid cross-FS rename.
+	side := live + ".restore-bak"
+	if err := copyFile(live, side); err != nil {
+		// If the live file doesn't exist yet, that's OK — we'll create
+		// it fresh from the artifact below.
+		if !os.IsNotExist(err) {
+			return fmt.Errorf("snapshot live db: %w", err)
+		}
+	}
+	// Close the active connection so the file handle releases the OS
+	// lock before we overwrite it (Windows would refuse otherwise; UNIX
+	// is more lenient but locks can still cause readback weirdness).
+	if err := s.db.Close(); err != nil {
+		return fmt.Errorf("close live db: %w", err)
+	}
+	if err := copyFile(src, live); err != nil {
+		// Roll back: put the side-copy back in place so the user isn't
+		// left with a broken DB. Best-effort — log via err return only.
+		_ = copyFile(side, live)
+		_ = reopenStore(s)
+		return fmt.Errorf("copy artifact: %w", err)
+	}
+	_ = os.Remove(side)
+	return reopenStore(s)
+}
+
+// copyFile copies src to dst using a buffered io.Copy. dst is created
+// with 0o644; the caller is responsible for ensuring the parent dir
+// exists.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
+}
+
+// reopenStore re-opens the underlying *sql.DB on s.dbPath so the store
+// is usable after a Restore. Kept private — Backup/Restore are the only
+// callers.
+func reopenStore(s *SQLiteStore) error {
+	db, err := sql.Open("sqlite", s.dbPath+"?_pragma=journal_mode(WAL)")
+	if err != nil {
+		return fmt.Errorf("reopen sqlite: %w", err)
+	}
+	s.db = db
+	return nil
+}

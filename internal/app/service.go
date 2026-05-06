@@ -76,6 +76,17 @@ type ImportStore interface {
 	ImportRecords(rows []ImportRecord) (ImportResult, error)
 }
 
+// BackupStore extends Store with portable snapshot + restore for the
+// M3 backup/restore feature. Implementations MUST produce a single-file
+// artifact that can be moved across machines and restored losslessly.
+// Defensive type-assert pattern: Service.Backup/Restore surface a clear
+// capability error rather than a nil-method panic when the underlying
+// store is a stub or doesn't support snapshots.
+type BackupStore interface {
+	Backup(dst string) error
+	Restore(src string) error
+}
+
 // FilterStore extends Store with the structured read paths introduced by
 // the M2 milestone (recall with metadata filters + recent-context view).
 // Same defensive pattern as MetadataStore: callers MUST type-assert and
@@ -387,6 +398,37 @@ func (s *Service) ImportJSON(data []byte, dryRun bool) (ImportResult, error) {
 		return ImportResult{}, errors.New("store does not support import operations")
 	}
 	return imp.ImportRecords(rows)
+}
+
+// Backup creates a portable snapshot of the live store at dst. Returns
+// a capability error if the underlying Store does not implement
+// BackupStore (defensive type-assert mirrors session/import).
+func (s *Service) Backup(dst string) error {
+	clean := strings.TrimSpace(dst)
+	if clean == "" {
+		return errors.New("backup destination is empty")
+	}
+	bs, ok := s.repo.(BackupStore)
+	if !ok {
+		return errors.New("store does not support backup operations")
+	}
+	return bs.Backup(clean)
+}
+
+// Restore replaces the live store with the contents of src. Same
+// capability check + trim semantics as Backup. Callers are expected to
+// re-Init the service afterwards if the artifact predates the current
+// schema version — Init is forward-only and idempotent.
+func (s *Service) Restore(src string) error {
+	clean := strings.TrimSpace(src)
+	if clean == "" {
+		return errors.New("restore source is empty")
+	}
+	bs, ok := s.repo.(BackupStore)
+	if !ok {
+		return errors.New("store does not support restore operations")
+	}
+	return bs.Restore(clean)
 }
 
 func DefaultDBPath() (string, error) {
