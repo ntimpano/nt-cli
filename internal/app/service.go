@@ -373,6 +373,14 @@ func (s *Service) SessionStart(id string) error {
 
 // SessionEnd appends an "end" lifecycle row. Multiple ends are tolerated
 // at the store layer — interpretation is the reader's responsibility.
+//
+// PR6 / workflow-autopilot: when NTCLI_FF_AUTOPILOT=1, SessionEnd
+// MUST refuse to write the end-row unless a "summary" event exists
+// for clean. The refusal returns ErrSummaryRequired so the CLI can
+// map it to exit code 2 and a `summary_required` message. Operators
+// who genuinely need to close a session without a summary use
+// SessionEndForce. The guard is strictly opt-in so the FF stays safe
+// to flip in mixed environments.
 func (s *Service) SessionEnd(id string) error {
 	clean, err := s.validateSessionID(id)
 	if err != nil {
@@ -381,6 +389,15 @@ func (s *Service) SessionEnd(id string) error {
 	sess, ok := s.repo.(SessionStore)
 	if !ok {
 		return errors.New("store does not support session operations")
+	}
+	if autopilotEnabled() {
+		hasSummary, err := sessionHasSummary(sess, clean)
+		if err != nil {
+			return err
+		}
+		if !hasSummary {
+			return ErrSummaryRequired
+		}
 	}
 	return sess.SessionEnd(clean, time.Now().UTC())
 }
