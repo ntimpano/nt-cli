@@ -94,6 +94,11 @@ type localUpdateArgs struct {
 	Content string `json:"content"`
 }
 
+type localSessionArgs struct {
+	SessionID string `json:"session_id"`
+	Summary   string `json:"summary,omitempty"`
+}
+
 type initializeParams struct {
 	ProtocolVersion string `json:"protocolVersion"`
 }
@@ -414,6 +419,36 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				}
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("updated #%d", args.ID))}, true
 
+			case "local_session_start":
+				var args localSessionArgs
+				if err := json.Unmarshal(params.Arguments, &args); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+				}
+				if err := svc.SessionStart(args.SessionID); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("session started %s", strings.TrimSpace(args.SessionID)))}, true
+
+			case "local_session_end":
+				var args localSessionArgs
+				if err := json.Unmarshal(params.Arguments, &args); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+				}
+				if err := svc.SessionEnd(args.SessionID); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("session ended %s", strings.TrimSpace(args.SessionID)))}, true
+
+			case "local_session_summary":
+				var args localSessionArgs
+				if err := json.Unmarshal(params.Arguments, &args); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+				}
+				if err := svc.SessionSummary(args.SessionID, args.Summary); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("session summary %s", strings.TrimSpace(args.SessionID)))}, true
+
 			default:
 				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "tool not found"}}, true
 			}
@@ -627,6 +662,40 @@ func toolsListResult() map[string]interface{} {
 						"content": map[string]interface{}{"type": "string"},
 					},
 					"required": []string{"id", "content"},
+				},
+			},
+			{
+				"name":        "local_session_start",
+				"description": "Marca el inicio de una sesión en el log local SQLite (local-only; no afecta Engram).",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"session_id": map[string]interface{}{"type": "string"},
+					},
+					"required": []string{"session_id"},
+				},
+			},
+			{
+				"name":        "local_session_end",
+				"description": "Marca el cierre de una sesión en el log local SQLite (local-only; no afecta Engram).",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"session_id": map[string]interface{}{"type": "string"},
+					},
+					"required": []string{"session_id"},
+				},
+			},
+			{
+				"name":        "local_session_summary",
+				"description": "Adjunta un resumen a una sesión en el log local SQLite (local-only; no afecta Engram).",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"session_id": map[string]interface{}{"type": "string"},
+						"summary":    map[string]interface{}{"type": "string"},
+					},
+					"required": []string{"session_id", "summary"},
 				},
 			},
 		},

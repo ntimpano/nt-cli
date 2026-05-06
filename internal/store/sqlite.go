@@ -20,7 +20,8 @@ import (
 //
 // v1: M1 structured-memory columns (title/type/topic_key/scope) + indexes.
 // v2: M2 ranked-recall — memory_fts virtual table + sync triggers.
-const CurrentSchemaVersion = 2
+// v3: M3 session lifecycle log — `sessions` table for session_workflow.
+const CurrentSchemaVersion = 3
 
 type SQLiteStore struct {
 	db        *sql.DB
@@ -175,6 +176,27 @@ func (s *SQLiteStore) Init() error {
 	// Topic-key lookup index — used by the application-level upsert path.
 	if _, err := tx.Exec(
 		`CREATE INDEX IF NOT EXISTS idx_memory_items_topic ON memory_items(topic_key, scope)`,
+	); err != nil {
+		return err
+	}
+
+	// M3 — session lifecycle log. Each row is one of "start" / "summary"
+	// / "end" tagged with a session_id. Kept as an append-only log
+	// (no UPDATE) so re-running session start/end doesn't mutate
+	// historical rows. Indexed by session_id for fast SessionEvents().
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS sessions (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			session_id TEXT NOT NULL,
+			kind TEXT NOT NULL,
+			summary TEXT,
+			created_at DATETIME NOT NULL
+		);
+	`); err != nil {
+		return fmt.Errorf("create sessions: %w", err)
+	}
+	if _, err := tx.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_sessions_session_id ON sessions(session_id, id)`,
 	); err != nil {
 		return err
 	}
@@ -728,4 +750,72 @@ func (s *SQLiteStore) Delete(id int64) (bool, error) {
 
 func (s *SQLiteStore) Close() error {
 	return s.db.Close()
+}
+
+// SessionStart appends a "start" lifecycle row tagged with id. Empty/
+// whitespace-only ids are rejected so unrelated sessions cannot be
+// silently merged under an empty key.
+func (s *SQLiteStore) SessionStart(id string, at time.Time) error {
+	return s.appendSessionEvent(id, "start", "", at)
+}
+
+// SessionSummary appends a "summary" lifecycle row carrying free-form
+// text. Multiple summaries per session are allowed (append-only log).
+func (s *SQLiteStore) SessionSummary(id, summary string, at time.Time) error {
+	return s.appendSessionEvent(id, "summary", summary, at)
+}
+
+// SessionEnd appends an "end" lifecycle row. Multiple ends are tolerated;
+// the log captures whatever the caller wrote — interpretation is the
+// reader's responsibility.
+func (s *SQLiteStore) SessionEnd(id string, at time.Time) error {
+	return s.appendSessionEvent(id, "end", "", at)
+}
+
+func (s *SQLiteStore) appendSessionEvent(id, kind, summary string, at time.Time) error {
+	clean := strings.TrimSpace(id)
+	if clean == "" {
+		return errors.New("session id is empty")
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO sessions(session_id, kind, summary, created_at) VALUES(?, ?, ?, ?)`,
+		clean, kind, summary, at.UTC().Format(time.RFC3339),
+	)
+	return err
+}
+
+// SessionEvents returns every lifecycle row tagged to id, ordered by id
+// ASC (insertion order). Empty result is not an error — callers see an
+// empty slice for unknown session ids.
+func (s *SQLiteStore) SessionEvents(id string) ([]app.SessionEvent, error) {
+	clean := strings.TrimSpace(id)
+	if clean == "" {
+		return nil, errors.New("session id is empty")
+	}
+	rows, err := s.db.Query(
+		`SELECT session_id, kind, COALESCE(summary, ''), created_at
+		 FROM sessions
+		 WHERE session_id = ?
+		 ORDER BY id ASC`,
+		clean,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []app.SessionEvent
+	for rows.Next() {
+		var ev app.SessionEvent
+		var createdRaw string
+		if err := rows.Scan(&ev.SessionID, &ev.Kind, &ev.Summary, &createdRaw); err != nil {
+			return nil, err
+		}
+		t, err := time.Parse(time.RFC3339, createdRaw)
+		if err != nil {
+			return nil, fmt.Errorf("invalid sessions.created_at: %w", err)
+		}
+		ev.CreatedAt = t
+		out = append(out, ev)
+	}
+	return out, rows.Err()
 }

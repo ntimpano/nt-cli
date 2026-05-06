@@ -27,6 +27,27 @@ type MetadataStore interface {
 	SaveWithMeta(req SaveRequest) (int64, error)
 }
 
+// SessionEvent is a single row in the session-lifecycle log. Kind is one
+// of "start", "summary", "end". Summary is non-empty only for "summary"
+// rows. CreatedAt is UTC.
+type SessionEvent struct {
+	SessionID string
+	Kind      string
+	Summary   string
+	CreatedAt time.Time
+}
+
+// SessionStore extends Store with the lifecycle log introduced by M3.
+// Implementations of Store are NOT required to satisfy this interface;
+// the service layer type-asserts and fails fast for legacy fakes (same
+// pattern as MetadataStore / FilterStore).
+type SessionStore interface {
+	SessionStart(id string, at time.Time) error
+	SessionSummary(id, summary string, at time.Time) error
+	SessionEnd(id string, at time.Time) error
+	SessionEvents(id string) ([]SessionEvent, error)
+}
+
 // FilterStore extends Store with the structured read paths introduced by
 // the M2 milestone (recall with metadata filters + recent-context view).
 // Same defensive pattern as MetadataStore: callers MUST type-assert and
@@ -215,6 +236,79 @@ func (s *Service) Delete(id int64) (bool, error) {
 	}
 	return s.repo.Delete(id)
 }
+
+// SessionStart appends a "start" lifecycle row tagged with id. The
+// service trims the id and stamps the current UTC time; empty/
+// whitespace-only ids are rejected so unrelated sessions cannot be
+// silently merged. Fails fast if the store does not implement
+// SessionStore (same defensive pattern as MetadataStore/FilterStore).
+func (s *Service) SessionStart(id string) error {
+	clean, err := s.validateSessionID(id)
+	if err != nil {
+		return err
+	}
+	sess, ok := s.repo.(SessionStore)
+	if !ok {
+		return errors.New("store does not support session operations")
+	}
+	return sess.SessionStart(clean, time.Now().UTC())
+}
+
+// SessionEnd appends an "end" lifecycle row. Multiple ends are tolerated
+// at the store layer — interpretation is the reader's responsibility.
+func (s *Service) SessionEnd(id string) error {
+	clean, err := s.validateSessionID(id)
+	if err != nil {
+		return err
+	}
+	sess, ok := s.repo.(SessionStore)
+	if !ok {
+		return errors.New("store does not support session operations")
+	}
+	return sess.SessionEnd(clean, time.Now().UTC())
+}
+
+// SessionSummary appends a "summary" lifecycle row. Empty/whitespace-only
+// summaries are rejected — a summary row with no content has no value
+// for downstream consumers and would just clutter the log.
+func (s *Service) SessionSummary(id, summary string) error {
+	clean, err := s.validateSessionID(id)
+	if err != nil {
+		return err
+	}
+	cleanSummary := strings.TrimSpace(summary)
+	if cleanSummary == "" {
+		return errors.New("summary is empty")
+	}
+	sess, ok := s.repo.(SessionStore)
+	if !ok {
+		return errors.New("store does not support session operations")
+	}
+	return sess.SessionSummary(clean, cleanSummary, time.Now().UTC())
+}
+
+// SessionEvents returns every lifecycle row tagged to id, in insertion
+// order. Validation mirrors the write paths.
+func (s *Service) SessionEvents(id string) ([]SessionEvent, error) {
+	clean, err := s.validateSessionID(id)
+	if err != nil {
+		return nil, err
+	}
+	sess, ok := s.repo.(SessionStore)
+	if !ok {
+		return nil, errors.New("store does not support session operations")
+	}
+	return sess.SessionEvents(clean)
+}
+
+func (s *Service) validateSessionID(id string) (string, error) {
+	clean := strings.TrimSpace(id)
+	if clean == "" {
+		return "", errors.New("session id is empty")
+	}
+	return clean, nil
+}
+
 
 func DefaultDBPath() (string, error) {
 	home, err := os.UserHomeDir()

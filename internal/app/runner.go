@@ -323,8 +323,71 @@ func RunCLI(svc *Service, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "updated #%d\n", id)
 		return 0
 
+	case "session":
+		return runSession(svc, args[1:], stdout, stderr)
+
 	default:
 		printUsage(stdout)
+		return 1
+	}
+}
+
+// runSession dispatches `nt-cli session <start|end|summary> <id> [text...]`.
+// Kept as a helper so the main switch stays scannable. Validation lives at
+// the service layer; the CLI is just an args parser + presenter.
+func runSession(svc *Service, args []string, stdout, stderr io.Writer) int {
+	if len(args) < 1 {
+		fmt.Fprintln(stderr, "usage: nt-cli session <start|end|summary> <id> [text]")
+		return 1
+	}
+	switch args[0] {
+	case "start":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "usage: nt-cli session start <id>")
+			return 1
+		}
+		id := strings.TrimSpace(args[1])
+		if err := svc.SessionStart(id); err != nil {
+			fmt.Fprintf(stderr, "session start failed: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "session started %s\n", id)
+		return 0
+	case "end":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "usage: nt-cli session end <id>")
+			return 1
+		}
+		id := strings.TrimSpace(args[1])
+		if err := svc.SessionEnd(id); err != nil {
+			fmt.Fprintf(stderr, "session end failed: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "session ended %s\n", id)
+		return 0
+	case "summary":
+		if len(args) < 2 {
+			fmt.Fprintln(stderr, "usage: nt-cli session summary <id> \"text\"")
+			return 1
+		}
+		if len(args) < 3 {
+			fmt.Fprintln(stderr, "usage: nt-cli session summary <id> \"text\"")
+			return 1
+		}
+		id := strings.TrimSpace(args[1])
+		text := strings.TrimSpace(strings.Join(args[2:], " "))
+		if text == "" {
+			fmt.Fprintln(stderr, "summary text cannot be empty")
+			return 1
+		}
+		if err := svc.SessionSummary(id, text); err != nil {
+			fmt.Fprintf(stderr, "session summary failed: %v\n", err)
+			return 1
+		}
+		fmt.Fprintf(stdout, "session summary %s\n", id)
+		return 0
+	default:
+		fmt.Fprintf(stderr, "unknown session subcommand %q (expected start|end|summary)\n", args[0])
 		return 1
 	}
 }
@@ -339,6 +402,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  nt-cli get <id>")
 	fmt.Fprintln(w, "  nt-cli update <id> \"new content\"")
 	fmt.Fprintln(w, "  nt-cli delete <id>")
+	fmt.Fprintln(w, "  nt-cli session <start|end|summary> <id> [text]")
 	fmt.Fprintln(w, "  nt-cli mcp")
 }
 
