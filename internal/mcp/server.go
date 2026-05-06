@@ -140,6 +140,16 @@ func graphFeatureEnabled() bool {
 	return strings.TrimSpace(os.Getenv("NTCLI_FF_GRAPH")) == "1"
 }
 
+// actionableRecallEnabled reports whether the PR5 actionable-recall
+// response shape is on. Default OFF: NTCLI_FF_ACTIONABLE=1 opts the
+// caller in. With the flag OFF the local_recall payload stays
+// byte-identical to the pre-PR5 raw item array — backward compatible
+// for legacy clients per the spec's "Recall MUST rank by FTS relevance"
+// requirement.
+func actionableRecallEnabled() bool {
+	return strings.TrimSpace(os.Getenv("NTCLI_FF_ACTIONABLE")) == "1"
+}
+
 // parseRelationDirection maps the public string form to the internal
 // enum. Unknown / empty values default to outbound because forward
 // links are the most common navigation case and forcing callers to
@@ -406,7 +416,7 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				// passed, route through RecallWithOptions so the service
 				// layer can dispatch to RecallGraphAware. With the flag
 				// OFF and no opts, behavior is byte-identical to PR2b.
-				useOpts := hasFilter || graphFeatureEnabled() || args.IncludeSuperseded
+				useOpts := hasFilter || graphFeatureEnabled() || args.IncludeSuperseded || actionableRecallEnabled()
 				var (
 					items []app.MemoryItem
 					err   error
@@ -438,6 +448,17 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				}
 				if err != nil {
 					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				// PR5: when NTCLI_FF_ACTIONABLE=1, wrap the raw items
+				// in the actionable-recall response shape (matches +
+				// next_action + checklist + inferred_paths). With the
+				// flag OFF, the legacy raw-array payload is returned
+				// unchanged — backward-compatible for any client that
+				// has not opted in to the new contract.
+				if actionableRecallEnabled() {
+					actionable := app.BuildActionableRecall(items)
+					ab, _ := json.Marshal(actionableRecallPayload(actionable))
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(ab))}, true
 				}
 				b, _ := json.Marshal(memoryItemsPayload(items))
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
@@ -1032,8 +1053,30 @@ func memoryItemsPayload(items []app.MemoryItem) []map[string]interface{} {
 	return out
 }
 
-// memoryRelationsPayload renders []MemoryRelation as JSON-friendly maps
-// with snake_case keys so MCP clients can consume the rows without
+// actionableRecallPayload renders an app.ActionableRecallResponse as a
+// JSON-serialisable map with snake_case keys. The Matches slice reuses
+// memoryItemsPayload so PR5's wrapped shape stays consistent with the
+// legacy item rendering — only the outer envelope changes when the
+// FF is on. Nil slices are coerced to empty arrays so the wire shape
+// is stable (callers can iterate without nil checks).
+func actionableRecallPayload(resp app.ActionableRecallResponse) map[string]interface{} {
+	checklist := resp.Checklist
+	if checklist == nil {
+		checklist = []string{}
+	}
+	paths := resp.InferredPaths
+	if paths == nil {
+		paths = []string{}
+	}
+	return map[string]interface{}{
+		"matches":        memoryItemsPayload(resp.Matches),
+		"next_action":    resp.NextAction,
+		"checklist":      checklist,
+		"inferred_paths": paths,
+	}
+}
+
+// memoryRelationsPayload renders []MemoryRelation as JSON-friendly maps// with snake_case keys so MCP clients can consume the rows without
 // dealing with Go's default capital-cased struct tags. Mirrors
 // memoryItemsPayload so the surface stays consistent across tools.
 func memoryRelationsPayload(rels []app.MemoryRelation) []map[string]interface{} {
