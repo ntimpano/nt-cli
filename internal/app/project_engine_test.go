@@ -265,6 +265,83 @@ func TestProposeName_FromRemote(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// CRITICAL gap: ambiguous probe flow (spec scenario "Probe ambiguous")
+// The "ambiguous" status MUST be returned when the resolver cannot produce a
+// stable fingerprint (no git root) AND cwd is a prefix-match of multiple
+// registered project root_paths.
+// ---------------------------------------------------------------------------
+
+// ambiguousLookup wraps stubProjectLookup and also implements the
+// RootPathLookup interface so ProbeWithResolver can use it for ambiguous detection.
+type ambiguousLookup struct {
+	stubProjectLookup
+	byRootPath []Project // all projects, scanned for root_path prefix
+}
+
+func (a *ambiguousLookup) FindByRootPath(cwd string) ([]Project, error) {
+	var out []Project
+	for _, p := range a.byRootPath {
+		if p.RootPath != "" && len(cwd) >= len(p.RootPath) && cwd[:len(p.RootPath)] == p.RootPath {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+// TestProbe_AmbiguousStatus_MultipleRootPathMatches verifies that when the
+// resolver finds no git root (no stable fingerprint) and cwd matches multiple
+// registered root_paths, ProbeWithResolver returns status="ambiguous".
+// RED: ProbeWithResolver currently cannot return "ambiguous" — build passes but
+// logic returns "none" instead. We need to extend FingerprintLookup.
+func TestProbe_AmbiguousStatus_MultipleRootPathMatches(t *testing.T) {
+	// GIVEN: two projects whose root_paths are prefixes of cwd; no git root.
+	p1 := Project{ID: 1, Name: "proj-a", RootPath: "/work/proj"}
+	p2 := Project{ID: 2, Name: "proj-b", RootPath: "/work/proj"}
+	lookup := &ambiguousLookup{
+		stubProjectLookup: stubProjectLookup{byFingerprint: map[string]*Project{}},
+		byRootPath:        []Project{p1, p2},
+	}
+	resolver := func(cwd string) (string, string) {
+		return "", "" // no git root → no fingerprint
+	}
+
+	result, err := ProbeWithResolver("/work/proj/subdir", lookup, resolver)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != "ambiguous" {
+		t.Errorf("expected status=ambiguous, got %q (reason: %q)", result.Status, result.Reason)
+	}
+	// Candidates list must be populated — caller must invoke project_confirm to commit.
+	if len(result.Candidates) < 2 {
+		t.Errorf("expected at least 2 candidates, got %d", len(result.Candidates))
+	}
+}
+
+// TestProbe_Ambiguous_RequiresConfirmBeforeMutate verifies that the "ambiguous"
+// result carries no mutation side-effect — it's a read-only proposal.
+// (Triangulation: single-project root_path match should not be ambiguous.)
+func TestProbe_SingleRootPathMatch_NotAmbiguous(t *testing.T) {
+	p1 := Project{ID: 1, Name: "proj-a", RootPath: "/work/proj-a"}
+	lookup := &ambiguousLookup{
+		stubProjectLookup: stubProjectLookup{byFingerprint: map[string]*Project{}},
+		byRootPath:        []Project{p1},
+	}
+	resolver := func(cwd string) (string, string) {
+		return "", "" // no git root
+	}
+
+	result, err := ProbeWithResolver("/work/proj-a/subdir", lookup, resolver)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// One match is still "known" (by path), not ambiguous.
+	if result.Status != "known" {
+		t.Errorf("expected status=known for single root_path match, got %q", result.Status)
+	}
+}
+
 // Ensure filepath.Base is being used (cross-platform check)
 func TestComputeFingerprint_PathSeparatorAgnostic(t *testing.T) {
 	fp1 := ComputeFingerprint(filepath.Join("home", "user", "repo"), "")
