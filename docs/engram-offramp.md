@@ -131,6 +131,58 @@ inputs across the sample. Record pass/fail per row.
 | 6 | delete | `nt-cli delete <id>` | `local_delete` | |
 | 7–10 | repeat any of the above with edge inputs (empty query, missing id, large content) | | | |
 
+## Knowledge-continuity harness
+
+The knowledge-continuity harness is the read-only replay tool that feeds
+the scorecard's `knowledge-continuity` dimension. It replays a fixed
+fixture suite of recall queries against the live store, measures
+top-k hit-rate and resume-time p95, and writes a deterministic
+`baseline.json` artifact that the rollout records once per release.
+
+### What it produces
+
+| Field | Meaning |
+|-------|---------|
+| `version` | Harness contract version; bumps invalidate prior baselines |
+| `count` | Number of queries replayed (must be ≥10 for a valid run) |
+| `top_k_hit_rate` | Fraction of queries whose `expected_marker` appeared in top-3 |
+| `resume_p95_ms` | Nearest-rank p95 of per-query recall latency in ms |
+| `resume_median_ms` | Median per-query recall latency in ms |
+| `queries[]` | Per-query record: `query`, `hit`, `latency_ms`, `expected_marker` |
+| `generated_at` | UTC timestamp from the injected clock |
+
+### Recording a baseline
+
+The fixture lives at `testdata/parity/queries.json` (12 queries, each
+with an `expected_marker` substring chosen to be portable across
+reseeded stores). Record a baseline with:
+
+```sh
+nt-cli parity continuity \
+  --fixture=testdata/parity/queries.json \
+  --out=baseline.json
+```
+
+Both flags are required. A missing fixture fails loudly because a
+silent zero-row baseline would skew the `knowledge-continuity`
+dimension to zero in the scorecard verdict.
+
+### Replaying against a baseline
+
+PR5 of the singularity rollout consumes `baseline.json` to assert that
+post-feature recall improves by `delta_pct ≤ -35` on resume-time p95
+versus the recorded baseline. Re-run the same command after the
+feature ships and diff the two files; the runbook reviewer should
+see hit-rate non-decreasing and `resume_p95_ms` strictly lower.
+
+### Wiring into the scorecard
+
+The harness's `top_k_hit_rate` and `resume_p95_ms` are the inputs to
+`ScoreKnowledgeContinuity`, which produces the `knowledge-continuity`
+dimension score consumed by `parity scorecard`. The latency budget is
+50ms; scores decay linearly above that, with a 0.5 floor so a slow
+correct answer still beats a fast wrong one.
+
 ## Host profile toggle (`NTCLI_PROFILE`)
 
 The wrapper at `scripts/opencode-mcp-dev.sh` reads a single env var,
