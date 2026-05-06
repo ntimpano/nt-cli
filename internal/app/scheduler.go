@@ -130,21 +130,6 @@ func (p *RetentionPruner) Prune(files []string) error {
 	return nil
 }
 
-// ---------------------------------------------------------------------------
-// Phase 4: Pre-restore safety snapshot
-// ---------------------------------------------------------------------------
-
-// SafeRestore takes a safety snapshot before restoring. If the snapshot fails,
-// the restore is aborted and the snapshot error is returned. This prevents
-// data loss from a failed restore overwriting the current DB without a backup.
-//
-// backupFn  — should write the current DB to safetyDst atomically.
-// restoreFn — should replace the current DB with the file at restoreSrc.
-// safetyDst — where the safety snapshot is written.
-// restoreSrc — the snapshot to restore from.
-func SafeRestore(backupFn BackupFunc, restoreFn RestoreFunc, safetyDst, restoreSrc string) error {
-	if err := backupFn(safetyDst); err != nil {
-		return fmt.Errorf("pre-restore safety snapshot failed: %w", err)
-	}
-	return restoreFn(restoreSrc)
-}
+// SafeRestore is defined in backup.go (canonical location).
+// It takes a doSnapshot and doRestore func() error pair, runs snapshot first,
+// and aborts restore if snapshot fails. See backup.go for the implementation.

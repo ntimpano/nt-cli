@@ -81,8 +81,9 @@ type localRecallArgs struct {
 }
 
 type localContextArgs struct {
-	N     int    `json:"n"`
-	Scope string `json:"scope,omitempty"`
+	N           int    `json:"n"`
+	Scope       string `json:"scope,omitempty"`
+	AllProjects bool   `json:"all_projects,omitempty"`
 }
 
 type localListArgs struct {
@@ -487,7 +488,7 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 			case "local_context":
 				var args localContextArgs
 				_ = json.Unmarshal(params.Arguments, &args)
-				items, err := svc.Context(args.N, args.Scope)
+				items, err := svc.ContextOpts(args.N, args.Scope, args.AllProjects)
 				if err != nil {
 					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
 				}
@@ -695,12 +696,20 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				if err != nil {
 					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
 				}
-				b, _ := json.Marshal(map[string]interface{}{
+				payload := map[string]interface{}{
 					"status":     res.Status,
 					"candidate":  res.Candidate,
 					"confidence": res.Confidence,
 					"reason":     res.Reason,
-				})
+				}
+				if res.Status == "ambiguous" && len(res.Candidates) > 0 {
+					names := make([]string, 0, len(res.Candidates))
+					for _, c := range res.Candidates {
+						names = append(names, c.Name)
+					}
+					payload["candidates"] = names
+				}
+				b, _ := json.Marshal(payload)
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
 
 			case "project_confirm":
