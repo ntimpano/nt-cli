@@ -170,14 +170,12 @@ func TestRetentionPruner_DoesNotPruneWhenUnderLimit(t *testing.T) {
 
 // TestPreRestoreSnapshot_AbortedOnBackupFailure verifies that when the
 // pre-restore backup fails, restore is not attempted.
-// RED: SafeRestore does not exist yet.
+// SafeRestore signature: func(doSnapshot func() error, doRestore func() error) error
 func TestPreRestoreSnapshot_AbortedOnBackupFailure(t *testing.T) {
 	restoreCalled := false
 	result := SafeRestore(
-		func(dst string) error { return &mockError{"backup failed"} },
-		func(src string) error { restoreCalled = true; return nil },
-		"/tmp/safety.db",
-		"/tmp/target.db",
+		func() error { return &mockError{"backup failed"} },
+		func() error { restoreCalled = true; return nil },
 	)
 	if result == nil {
 		t.Fatal("expected error when backup fails")
@@ -191,10 +189,8 @@ func TestPreRestoreSnapshot_AbortedOnBackupFailure(t *testing.T) {
 func TestPreRestoreSnapshot_ProceedsWhenBackupSucceeds(t *testing.T) {
 	restoreCalled := false
 	result := SafeRestore(
-		func(dst string) error { return nil },
-		func(src string) error { restoreCalled = true; return nil },
-		"/tmp/safety.db",
-		"/tmp/target.db",
+		func() error { return nil },
+		func() error { restoreCalled = true; return nil },
 	)
 	if result != nil {
 		t.Fatalf("unexpected error: %v", result)

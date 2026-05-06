@@ -108,3 +108,71 @@ func TestProjectStore_CRUD(t *testing.T) {
 		t.Fatalf("active changed despite SetActive error: %+v", active3)
 	}
 }
+
+// TestFindByRootPath_SingleMatch verifies FindByRootPath returns the single
+// project whose root_path is a prefix of cwd.
+// RED: FindByRootPath not implemented yet → build fails.
+func TestFindByRootPath_SingleMatch(t *testing.T) {
+	s := newTestStore(t)
+
+	_, err := s.CreateProject(app.ProjectInput{
+		Name:        "alpha",
+		RootPath:    "/repos/alpha",
+		Fingerprint: "fp-alpha",
+	})
+	if err != nil {
+		t.Fatalf("create project: %v", err)
+	}
+
+	// cwd is a subdirectory of /repos/alpha — should match.
+	matches, err := s.FindByRootPath("/repos/alpha/src")
+	if err != nil {
+		t.Fatalf("FindByRootPath: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("expected 1 match, got %d: %+v", len(matches), matches)
+	}
+	if matches[0].Name != "alpha" {
+		t.Errorf("expected project 'alpha', got %q", matches[0].Name)
+	}
+}
+
+// TestFindByRootPath_AmbiguousMatch verifies FindByRootPath returns multiple
+// projects when cwd is inside more than one registered root_path.
+func TestFindByRootPath_AmbiguousMatch(t *testing.T) {
+	s := newTestStore(t)
+
+	_, err := s.CreateProject(app.ProjectInput{Name: "outer", RootPath: "/repos", Fingerprint: "fp-outer"})
+	if err != nil {
+		t.Fatalf("create outer: %v", err)
+	}
+	_, err = s.CreateProject(app.ProjectInput{Name: "inner", RootPath: "/repos/inner", Fingerprint: "fp-inner"})
+	if err != nil {
+		t.Fatalf("create inner: %v", err)
+	}
+
+	// cwd is inside both "/repos" and "/repos/inner".
+	matches, err := s.FindByRootPath("/repos/inner/src")
+	if err != nil {
+		t.Fatalf("FindByRootPath ambiguous: %v", err)
+	}
+	if len(matches) < 2 {
+		t.Fatalf("expected ≥2 matches for ambiguous cwd, got %d: %+v", len(matches), matches)
+	}
+}
+
+// TestFindByRootPath_NoMatch verifies FindByRootPath returns empty slice
+// when cwd is not inside any registered root_path.
+func TestFindByRootPath_NoMatch(t *testing.T) {
+	s := newTestStore(t)
+
+	_, _ = s.CreateProject(app.ProjectInput{Name: "myproj", RootPath: "/repos/myproj", Fingerprint: "fp1"})
+
+	matches, err := s.FindByRootPath("/unrelated/path")
+	if err != nil {
+		t.Fatalf("FindByRootPath no-match: %v", err)
+	}
+	if len(matches) != 0 {
+		t.Errorf("expected 0 matches, got %d: %+v", len(matches), matches)
+	}
+}

@@ -114,6 +114,45 @@ func (s *SQLiteStore) ListProjects() ([]app.Project, error) {
 	return out, rows.Err()
 }
 
+// FindByRootPath returns all projects whose root_path is a prefix of (or equal
+// to) cwd. This allows the probe engine to detect the "ambiguous" case where
+// the working directory could belong to more than one registered project.
+// An empty cwd returns an empty slice (no match).
+func (s *SQLiteStore) FindByRootPath(cwd string) ([]app.Project, error) {
+	if cwd == "" {
+		return nil, nil
+	}
+	// Match projects where root_path is a path-prefix of cwd.
+	// We use LIKE with a "/" separator to avoid false prefix matches
+	// (e.g. "/foo" should not match "/foobar").
+	// Two patterns cover: exact match OR prefix with trailing slash.
+	rows, err := s.db.Query(
+		`SELECT id, name, root_path, fingerprint, created_at
+		 FROM projects
+		 WHERE root_path != ''
+		   AND (root_path = ? OR ? LIKE root_path || '/%')
+		 ORDER BY id ASC`,
+		cwd, cwd,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("find by root path: %w", err)
+	}
+	defer rows.Close()
+	var out []app.Project
+	for rows.Next() {
+		var p app.Project
+		var createdRaw string
+		if err := rows.Scan(&p.ID, &p.Name, &p.RootPath, &p.Fingerprint, &createdRaw); err != nil {
+			return nil, err
+		}
+		if t, perr := time.Parse(time.RFC3339, createdRaw); perr == nil {
+			p.CreatedAt = t
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
 // FindByFingerprint returns the project whose fingerprint matches, or nil
 // if no such project exists. An empty fingerprint is treated as "no match"
 // to avoid colliding with the default project's empty fingerprint.

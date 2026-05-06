@@ -327,6 +327,20 @@ func (s *Service) Save(content string) (int64, error) {
 	if clean == "" {
 		return 0, errors.New("content is empty")
 	}
+	// When a project is active and the store supports metadata, route through
+	// SaveWithMeta so the row is stamped with the active project_id.
+	// This satisfies the spec requirement: "default Save path scoped by active project".
+	if s.activeProjectID > 0 {
+		if meta, ok := s.repo.(MetadataStore); ok {
+			return meta.SaveWithMeta(SaveRequest{
+				Content:   clean,
+				Type:      "manual",
+				Scope:     "project",
+				ProjectID: s.activeProjectID,
+				CreatedAt: time.Now().UTC(),
+			})
+		}
+	}
 	return s.repo.Save(clean, time.Now().UTC())
 }
 
@@ -373,6 +387,14 @@ func (s *Service) Recall(query string, limit int) ([]MemoryItem, error) {
 	}
 	if limit <= 0 {
 		limit = 10
+	}
+	// When an active project is set, route through RecallWithOptions so the
+	// project_id filter is applied. This satisfies the spec requirement:
+	// "default Recall path scoped by active project".
+	if s.activeProjectID > 0 {
+		if _, ok := s.repo.(FilterStore); ok {
+			return s.RecallWithOptions(RecallOptions{Query: clean, Limit: limit})
+		}
 	}
 	// PR4: when NTCLI_FF_GRAPH=1 AND the store supports graph-aware
 	// recall, route to RecallGraphAware so the same surface gets
@@ -434,6 +456,13 @@ func (s *Service) RecallWithOptions(opts RecallOptions) ([]MemoryItem, error) {
 // trimmed; empty string disables the scope filter. Same defensive
 // FilterStore type-assert as RecallWithOptions.
 func (s *Service) Context(n int, scope string) ([]MemoryItem, error) {
+	return s.ContextOpts(n, scope, false)
+}
+
+// ContextOpts is the full version of Context that exposes the AllProjects
+// bypass flag. When allProjects is true, the active project filter is skipped
+// so callers can read across all project contexts.
+func (s *Service) ContextOpts(n int, scope string, allProjects bool) ([]MemoryItem, error) {
 	filt, ok := s.repo.(FilterStore)
 	if !ok {
 		return nil, errors.New("store does not support context operations")
@@ -443,9 +472,10 @@ func (s *Service) Context(n int, scope string) ([]MemoryItem, error) {
 	}
 	scope = strings.TrimSpace(scope)
 	return filt.ContextFiltered(ContextOptions{
-		N:         n,
-		Scope:     scope,
-		ProjectID: s.activeProjectID,
+		N:           n,
+		Scope:       scope,
+		ProjectID:   s.activeProjectID,
+		AllProjects: allProjects,
 	})
 }
 
