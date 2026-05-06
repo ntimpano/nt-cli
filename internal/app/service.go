@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"nt-cli/internal/parity"
 )
 
 type Store interface {
@@ -18,6 +20,24 @@ type Store interface {
 	Update(id int64, content string, updatedAt time.Time) (bool, error)
 	Delete(id int64) (bool, error)
 	Close() error
+}
+
+// GraphRecallStore extends Store with the PR4 graph-aware recall path.
+// Optional capability — same defensive type-assert pattern as
+// FilterStore / RelationStore. The service routes to RecallGraphAware
+// only when (a) the env feature flag NTCLI_FF_GRAPH=1 is set AND (b)
+// the underlying store implements this interface. Legacy fakes that
+// don't implement it degrade to the plain Recall path so the FF stays
+// safe to flip in mixed environments.
+type GraphRecallStore interface {
+	RecallGraphAware(opts RecallOptions) ([]MemoryItem, error)
+}
+
+// graphRecallEnabled reports whether the PR4 graph-aware recall path
+// is opted in via env. Implemented as a function (not a constant) so
+// tests can flip the env mid-run, mirroring the MCP-side helper.
+func graphRecallEnabled() bool {
+	return strings.TrimSpace(os.Getenv("NTCLI_FF_GRAPH")) == "1"
 }
 
 // MetadataStore extends Store with structured-memory operations introduced by
@@ -131,6 +151,20 @@ type RecallOptions struct {
 	Since time.Time
 	Until time.Time
 	Limit int
+
+	// IncludeSuperseded opts back into rows that have been superseded
+	// by another row (predecessors of a `supersedes` edge). When false
+	// (default) RecallGraphAware suppresses them so the surface only
+	// shows current revisions. The plain Recall / RecallFiltered paths
+	// ignore this field — supersedes-aware filtering is exclusive to
+	// the graph-aware path.
+	IncludeSuperseded bool
+
+	// GraphAware requests the graph-aware ranking path. Wired by the
+	// service layer based on the NTCLI_FF_GRAPH feature flag — the
+	// store reads it directly so legacy fakes that don't implement
+	// graph capability never see this option engaged.
+	GraphAware bool
 }
 
 // SaveRequest carries the optional metadata fields accepted by the M1 save
@@ -221,6 +255,19 @@ func (s *Service) Recall(query string, limit int) ([]MemoryItem, error) {
 	if limit <= 0 {
 		limit = 10
 	}
+	// PR4: when NTCLI_FF_GRAPH=1 AND the store supports graph-aware
+	// recall, route to RecallGraphAware so the same surface gets
+	// supersedes-suppression and bounded boost. Capability missing →
+	// silent fall-through to plain Recall (legacy fakes still work).
+	if graphRecallEnabled() {
+		if gs, ok := s.repo.(GraphRecallStore); ok {
+			return gs.RecallGraphAware(RecallOptions{
+				Query:      clean,
+				Limit:      limit,
+				GraphAware: true,
+			})
+		}
+	}
 	return s.repo.Recall(clean, limit)
 }
 
@@ -237,14 +284,24 @@ func (s *Service) RecallWithOptions(opts RecallOptions) ([]MemoryItem, error) {
 	if clean == "" {
 		return nil, errors.New("query is empty")
 	}
-	filt, ok := s.repo.(FilterStore)
-	if !ok {
-		return nil, errors.New("store does not support filter operations")
-	}
 	opts.Query = clean
 	opts.Type = strings.TrimSpace(opts.Type)
 	if opts.Limit <= 0 {
 		opts.Limit = 10
+	}
+	// PR4: same routing rule as Recall(). When the FF is ON AND the
+	// store implements GraphRecallStore, dispatch the graph-aware
+	// path — it honors IncludeSuperseded for free. When the FF is
+	// OFF, behavior is byte-identical to PR2b.
+	if graphRecallEnabled() {
+		if gs, ok := s.repo.(GraphRecallStore); ok {
+			opts.GraphAware = true
+			return gs.RecallGraphAware(opts)
+		}
+	}
+	filt, ok := s.repo.(FilterStore)
+	if !ok {
+		return nil, errors.New("store does not support filter operations")
 	}
 	return filt.RecallFiltered(opts)
 }
@@ -461,6 +518,65 @@ func (s *Service) Doctor() (DoctorReport, error) {
 		return DoctorReport{}, errors.New("store does not support doctor diagnostics")
 	}
 	return ds.Doctor()
+}
+
+// systemClock satisfies parity.Clock with wall-clock time.Now in UTC.
+// Kept private — production callers don't need to construct it.
+type systemClock struct{}
+
+func (systemClock) Now() time.Time { return time.Now().UTC() }
+
+// recallAdapter bridges the Service.Recall surface (returning
+// MemoryItem slices) to the parity.Recaller interface (which only
+// needs content strings). Keeping the adapter local to the app
+// package avoids leaking parity types into the Store interface and
+// keeps the store layer ignorant of the harness contract.
+type recallAdapter struct {
+	svc *Service
+}
+
+func (r *recallAdapter) Recall(query string, limit int) ([]string, error) {
+	items, err := r.svc.Recall(query, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		out = append(out, it.Content)
+	}
+	return out, nil
+}
+
+// RunContinuityHarness loads the fixture suite at fixturePath, replays
+// every query through the live Service.Recall path, and writes the
+// resulting baseline.json to outPath. The returned baseline mirrors
+// the file content (same struct, indented JSON for runbook diffing).
+//
+// The harness is read-only — it never writes to the store. This is
+// the surface consumed by `nt-cli parity continuity` and by PR5's
+// post-feature replay step (which compares against this baseline to
+// assert delta_pct ≤ -35).
+func (s *Service) RunContinuityHarness(fixturePath, outPath string) (parity.ContinuityBaseline, error) {
+	queries, err := parity.LoadQueries(fixturePath)
+	if err != nil {
+		return parity.ContinuityBaseline{}, err
+	}
+	baseline, err := parity.ComputeContinuity(queries, &recallAdapter{svc: s}, systemClock{})
+	if err != nil {
+		return parity.ContinuityBaseline{}, err
+	}
+	// Indent the file output so runbook reviewers can diff baselines
+	// across releases without a separate jq step.
+	body, err := json.MarshalIndent(baseline, "", "  ")
+	if err != nil {
+		return parity.ContinuityBaseline{}, err
+	}
+	if outPath != "" {
+		if err := os.WriteFile(outPath, body, 0o644); err != nil {
+			return parity.ContinuityBaseline{}, err
+		}
+	}
+	return baseline, nil
 }
 
 func DefaultDBPath() (string, error) {

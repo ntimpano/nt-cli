@@ -23,7 +23,8 @@ import (
 // v1: M1 structured-memory columns (title/type/topic_key/scope) + indexes.
 // v2: M2 ranked-recall — memory_fts virtual table + sync triggers.
 // v3: M3 session lifecycle log — `sessions` table for session_workflow.
-const CurrentSchemaVersion = 3
+// v4: M4 memory graph — `memory_relations` typed-edge table + indexes.
+const CurrentSchemaVersion = 4
 
 type SQLiteStore struct {
 	db        *sql.DB
@@ -37,7 +38,13 @@ type SQLiteStore struct {
 }
 
 func NewSQLiteStore(path string) (*SQLiteStore, error) {
-	db, err := sql.Open("sqlite", path)
+	// modernc.org/sqlite defaults foreign_keys=OFF per connection. The
+	// driver's DSN syntax (`?_pragma=foreign_keys(1)`) applies the pragma
+	// to every connection the pool opens, which is the only way to keep
+	// ON DELETE CASCADE on memory_relations (v4) consistent across the
+	// *sql.DB pool. Reuses the same form already used by reopenStore().
+	dsn := path + "?_pragma=foreign_keys(1)"
+	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
 	}
@@ -211,6 +218,47 @@ func (s *SQLiteStore) Init() error {
 	if _, err := tx.Exec(
 		`CREATE INDEX IF NOT EXISTS idx_memory_items_import_dedupe
 		 ON memory_items(topic_key, content_hash)`,
+	); err != nil {
+		return err
+	}
+
+	// M4 — typed memory graph. memory_relations is an additive directed-edge
+	// table linking two memory_items rows by relation_type. Constraints:
+	//   * source_id != target_id            — no self-loops (CHECK).
+	//   * relation_type IN whitelist        — keep semantics curated (CHECK).
+	//   * ON DELETE CASCADE on both FKs     — neighbor traversal never sees
+	//                                         dangling edges; relies on the
+	//                                         DSN-level foreign_keys pragma
+	//                                         set in NewSQLiteStore.
+	// Indexed in both directions so Neighbors(id, dir) is O(log n) for either
+	// outbound (source_id) or inbound (target_id) lookups, ordered by
+	// created_at ASC for deterministic traversal.
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS memory_relations (
+			id            INTEGER PRIMARY KEY AUTOINCREMENT,
+			source_id     INTEGER NOT NULL,
+			target_id     INTEGER NOT NULL,
+			relation_type TEXT NOT NULL,
+			created_at    DATETIME NOT NULL,
+			CHECK (source_id <> target_id),
+			CHECK (relation_type IN (
+				'related','supersedes','conflicts_with','refines','depends_on'
+			)),
+			FOREIGN KEY(source_id) REFERENCES memory_items(id) ON DELETE CASCADE,
+			FOREIGN KEY(target_id) REFERENCES memory_items(id) ON DELETE CASCADE
+		);
+	`); err != nil {
+		return fmt.Errorf("create memory_relations: %w", err)
+	}
+	if _, err := tx.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_memory_relations_source
+		 ON memory_relations(source_id, created_at, id)`,
+	); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_memory_relations_target
+		 ON memory_relations(target_id, created_at, id)`,
 	); err != nil {
 		return err
 	}

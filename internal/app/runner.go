@@ -1,13 +1,17 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"strings"
 	"time"
+
+	"nt-cli/internal/parity"
 )
 
 // RunCLI dispatches an nt-cli command using the provided Service and writes
@@ -374,6 +378,9 @@ func RunCLI(svc *Service, args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 
+	case "parity":
+		return runParity(svc, args, stdout, stderr)
+
 	default:
 		printUsage(stdout)
 		return 1
@@ -523,4 +530,139 @@ func parseDateFlag(raw string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("expected YYYY-MM-DD or RFC3339, got %q", v)
 	}
 	return t.UTC(), nil
+}
+
+// runParity dispatches `nt-cli parity <subcommand>`. Subcommands:
+//   - scorecard:  computes the parity verdict from supplied dimension
+//     signals and prints the canonical JSON contract.
+//   - continuity: replays the knowledge-continuity fixture against the
+//     live store, writes baseline.json, and prints the same JSON.
+//
+// Each subcommand keeps its own flag parser so unknown flags fail
+// loudly (a silent skip would let a typo zero a dimension and quietly
+// skew the scorecard verdict).
+func runParity(svc *Service, args []string, stdout, stderr io.Writer) int {
+	if len(args) < 2 {
+		fmt.Fprintln(stderr, "usage: nt-cli parity <scorecard|continuity>")
+		return 1
+	}
+	switch args[1] {
+	case "scorecard":
+		return runParityScorecard(args[2:], stdout, stderr)
+	case "continuity":
+		return runParityContinuity(svc, args[2:], stdout, stderr)
+	default:
+		fmt.Fprintf(stderr, "unknown parity subcommand %q (valid: scorecard, continuity)\n", args[1])
+		return 1
+	}
+}
+
+// parityScorecardFlags is the set of int flags accepted by
+// `nt-cli parity scorecard`. They map 1:1 to parity.ScorecardSignals
+// fields so changes to the contract surface here as compile errors.
+type parityScorecardFlags struct {
+	coreOps                int
+	metadataRetrieval      int
+	sessionWorkflow        int
+	importExportBackup     int
+	reliabilityOperability int
+	knowledgeContinuity    int
+	uxAPIContract          int
+	soakDays               int
+}
+
+// parseParityScorecardFlags parses the supported `--key=value` flags into
+// a parityScorecardFlags value. Unknown flags surface a usage error so
+// typos fail loudly instead of silently scoring 0 and skewing the verdict.
+func parseParityScorecardFlags(args []string) (parityScorecardFlags, error) {
+	f := parityScorecardFlags{}
+	known := map[string]*int{
+		"--core-ops":                &f.coreOps,
+		"--metadata-retrieval":      &f.metadataRetrieval,
+		"--session-workflow":        &f.sessionWorkflow,
+		"--import-export-backup":    &f.importExportBackup,
+		"--reliability-operability": &f.reliabilityOperability,
+		"--knowledge-continuity":    &f.knowledgeContinuity,
+		"--ux-api-contract":         &f.uxAPIContract,
+		"--soak-days":               &f.soakDays,
+	}
+	for _, raw := range args {
+		key, val, ok := strings.Cut(raw, "=")
+		if !ok {
+			return f, fmt.Errorf("flag %q must use --key=value form", raw)
+		}
+		ptr, found := known[key]
+		if !found {
+			return f, fmt.Errorf("unknown flag %q", key)
+		}
+		n, err := strconv.Atoi(val)
+		if err != nil {
+			return f, fmt.Errorf("flag %s expects integer, got %q", key, val)
+		}
+		*ptr = n
+	}
+	return f, nil
+}
+
+func runParityScorecard(args []string, stdout, stderr io.Writer) int {
+	flags, err := parseParityScorecardFlags(args)
+	if err != nil {
+		fmt.Fprintln(stderr, err.Error())
+		return 1
+	}
+	v := parity.ComputeScorecard(parity.ScorecardSignals{
+		CoreOps:                flags.coreOps,
+		MetadataRetrieval:      flags.metadataRetrieval,
+		SessionWorkflow:        flags.sessionWorkflow,
+		ImportExportBackup:     flags.importExportBackup,
+		ReliabilityOperability: flags.reliabilityOperability,
+		KnowledgeContinuity:    flags.knowledgeContinuity,
+		UXAPIContract:          flags.uxAPIContract,
+		SoakDays:               flags.soakDays,
+	})
+	b, err := json.Marshal(v)
+	if err != nil {
+		fmt.Fprintf(stderr, "encode scorecard: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(b))
+	return 0
+}
+
+// runParityContinuity executes `nt-cli parity continuity --fixture=<path> --out=<path>`.
+// Replays the fixture suite through the live store, writes baseline.json
+// to --out, and prints the same baseline as JSON on stdout so the
+// runbook can pipe it into jq or diff against a previous baseline.
+//
+// Both flags are required: a missing fixture should fail loudly rather
+// than silently producing a zero-row baseline that would skew the
+// scorecard's KnowledgeContinuity dimension to zero.
+func runParityContinuity(svc *Service, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("parity continuity", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fixture := fs.String("fixture", "", "path to fixture queries.json (required)")
+	out := fs.String("out", "", "path to write baseline.json (required)")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+	if *fixture == "" {
+		fmt.Fprintln(stderr, "parity continuity: --fixture is required")
+		return 1
+	}
+	if *out == "" {
+		fmt.Fprintln(stderr, "parity continuity: --out is required")
+		return 1
+	}
+	baseline, err := svc.RunContinuityHarness(*fixture, *out)
+	if err != nil {
+		fmt.Fprintf(stderr, "parity continuity: %v\n", err)
+		return 1
+	}
+	body, err := json.Marshal(baseline)
+	if err != nil {
+		fmt.Fprintf(stderr, "encode baseline: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(body))
+	return 0
 }

@@ -182,10 +182,10 @@ func TestRunbook_RollbackTriggersAndNonDestructive(t *testing.T) {
 		// Map each spec trigger to a substring that MUST appear in the
 		// rollback section. This is the property the test enforces.
 		triggers := map[string]string{
-			"parity test failure":        "parity_test.go",
-			"data loss":                  "data loss",
+			"parity test failure":         "parity_test.go",
+			"data loss":                   "data loss",
 			"mcp tool registration error": "tool registration error",
-			"soak window error rate":     "soak",
+			"soak window error rate":      "soak",
 		}
 		for label, needle := range triggers {
 			if !strings.Contains(lower, strings.ToLower(needle)) {
@@ -488,4 +488,100 @@ func TestParityGate_RollbackTriggerDetection(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestRunbook_ParityScorecardContract proves task 1.6 of ntcli-singularity:
+// the runbook MUST document the parity scorecard contract — its 7 weighted
+// dimensions, the critical-floor concept, the 14-day soak window, and the
+// fact that the scorecard verdict supersedes binary G1/G2 while G3–G6
+// remain independent preconditions. Locking the wording here prevents
+// silent contract drift between code and operator docs.
+func TestRunbook_ParityScorecardContract(t *testing.T) {
+	doc := loadFile(t, runbookPath(t))
+	lower := strings.ToLower(doc)
+
+	// The runbook MUST introduce the scorecard concept.
+	containsAllNoCase(t, doc, []string{
+		"parity scorecard",
+	}, "runbook scorecard introduction")
+
+	// All 7 dimension names MUST appear so operators recognise the
+	// vocabulary surfaced by the CLI/MCP verdict payload.
+	for _, dim := range []string{
+		"core-ops",
+		"metadata-retrieval",
+		"session-workflow",
+		"import-export-backup",
+		"reliability-operability",
+		"knowledge-continuity",
+		"ux-api-contract",
+	} {
+		if !strings.Contains(lower, dim) {
+			t.Fatalf("runbook MUST document scorecard dimension %q", dim)
+		}
+	}
+
+	// The 95-threshold and 14-day soak window MUST be discoverable.
+	if !strings.Contains(lower, "95") {
+		t.Fatalf("runbook MUST document the >=95 total threshold for verdict=pass")
+	}
+	if !strings.Contains(lower, "14") {
+		t.Fatalf("runbook MUST document the 14-day soak window")
+	}
+
+	// The runbook MUST commit that the scorecard verdict supersedes
+	// binary G1/G2 while G3–G6 stay independent preconditions.
+	for _, phrase := range []string{
+		"supersedes",
+		"g3",
+		"g6",
+	} {
+		if !strings.Contains(lower, phrase) {
+			t.Fatalf("runbook MUST document scorecard relationship to gates; missing %q", phrase)
+		}
+	}
+}
+
+// TestRunbook_ContinuityHarness proves task 2.5 of ntcli-singularity:
+// the runbook MUST document how operators record and replay the
+// knowledge-continuity baseline that feeds the scorecard's
+// KnowledgeContinuity dimension and is consumed by PR5 to assert
+// `delta_pct ≤ -35`. Locking the wording here keeps the harness
+// contract (fixture path, baseline.json output, CLI command) from
+// drifting silently between code and operator docs.
+func TestRunbook_ContinuityHarness(t *testing.T) {
+	doc := loadFile(t, runbookPath(t))
+	lower := strings.ToLower(doc)
+
+	// The runbook MUST introduce the harness as a discoverable section.
+	containsAllNoCase(t, doc, []string{
+		"knowledge-continuity harness",
+	}, "runbook continuity harness section")
+
+	// Operators MUST be able to find the CLI command, the fixture
+	// path, and the baseline output filename. These are the three
+	// nouns the runbook needs so a new on-call can run the harness
+	// without reading the code.
+	for _, phrase := range []string{
+		"parity continuity",
+		"testdata/parity/queries.json",
+		"baseline.json",
+	} {
+		if !strings.Contains(lower, phrase) {
+			t.Fatalf("runbook MUST document continuity harness artifact %q", phrase)
+		}
+	}
+
+	// The harness output feeds the KnowledgeContinuity scorecard
+	// dimension and is replayed by PR5 to assert delta_pct ≤ -35.
+	// Both relationships MUST be discoverable so operators understand
+	// why the baseline matters.
+	for _, phrase := range []string{
+		"knowledge-continuity",
+		"delta_pct",
+	} {
+		if !strings.Contains(lower, phrase) {
+			t.Fatalf("runbook MUST document continuity harness consumer %q", phrase)
+		}
+	}
 }

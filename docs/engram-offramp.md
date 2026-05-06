@@ -66,6 +66,56 @@ If any required gate is not satisfied, **hold at the current phase** and name
 the failing gate in your hold notice (e.g. "Holding at shadow: G1 failing —
 parity_test.go reports missing tool `local_get`").
 
+## Parity scorecard
+
+The parity scorecard quantifies "100% practical parity" as a weighted score.
+The scorecard **verdict** supersedes binary G1/G2 when both are present;
+**G3–G6 remain independent preconditions** that must still be green.
+
+### Dimensions and weights
+
+The scorecard is computed from 7 hardcoded dimensions whose weights sum to
+100. The 3 dimensions marked **critical** force overall verdict=fail when
+red, regardless of total.
+
+| Dimension | Weight | Critical? |
+|-----------|-------:|-----------|
+| core-ops                | 25 | ✅ |
+| metadata-retrieval      | 15 |   |
+| session-workflow        | 10 |   |
+| import-export-backup    | 15 |   |
+| reliability-operability | 15 | ✅ |
+| knowledge-continuity    | 10 | ✅ |
+| ux-api-contract         | 10 |   |
+
+### Pass / hold / fail
+
+| Verdict | Conditions |
+|---------|-----------|
+| `pass` | total ≥ **95** AND all critical dimensions green AND `soak_days` ≥ **14** |
+| `fail` | any critical dimension red — even when total ≥ 95 |
+| `hold` | otherwise (e.g. `soak_window` under 14 days, or total below 95 with criticals green) |
+
+A hold notice on `soak_window` reports `soak_days` < 14. A hold notice for
+low total names the lowest-scoring critical dimension so operators know
+where to focus remediation. A fail verdict on critical-red names the
+failing critical dimension(s).
+
+### Surfacing the verdict
+
+```bash
+# CLI — flags map 1:1 to the dimensions above; values are 0..100.
+nt-cli parity scorecard \
+  --core-ops=98 --metadata-retrieval=95 --session-workflow=95 \
+  --import-export-backup=96 --reliability-operability=97 \
+  --knowledge-continuity=95 --ux-api-contract=95 --soak-days=14
+```
+
+The MCP tool `parity_scorecard` accepts the same signals as JSON-RPC
+arguments and returns the canonical contract `{total, dimensions[],
+version, verdict, hold_reason}`. The `version` field stamps the contract
+so consumers can pin a release.
+
 ### G2 operation parity sample (N≥10)
 
 Run each operation at least once on both the CLI and the MCP surface, mixing
@@ -80,6 +130,58 @@ inputs across the sample. Record pass/fail per row.
 | 5 | update | `nt-cli update <id> "..."` | `local_update` | |
 | 6 | delete | `nt-cli delete <id>` | `local_delete` | |
 | 7–10 | repeat any of the above with edge inputs (empty query, missing id, large content) | | | |
+
+## Knowledge-continuity harness
+
+The knowledge-continuity harness is the read-only replay tool that feeds
+the scorecard's `knowledge-continuity` dimension. It replays a fixed
+fixture suite of recall queries against the live store, measures
+top-k hit-rate and resume-time p95, and writes a deterministic
+`baseline.json` artifact that the rollout records once per release.
+
+### What it produces
+
+| Field | Meaning |
+|-------|---------|
+| `version` | Harness contract version; bumps invalidate prior baselines |
+| `count` | Number of queries replayed (must be ≥10 for a valid run) |
+| `top_k_hit_rate` | Fraction of queries whose `expected_marker` appeared in top-3 |
+| `resume_p95_ms` | Nearest-rank p95 of per-query recall latency in ms |
+| `resume_median_ms` | Median per-query recall latency in ms |
+| `queries[]` | Per-query record: `query`, `hit`, `latency_ms`, `expected_marker` |
+| `generated_at` | UTC timestamp from the injected clock |
+
+### Recording a baseline
+
+The fixture lives at `testdata/parity/queries.json` (12 queries, each
+with an `expected_marker` substring chosen to be portable across
+reseeded stores). Record a baseline with:
+
+```sh
+nt-cli parity continuity \
+  --fixture=testdata/parity/queries.json \
+  --out=baseline.json
+```
+
+Both flags are required. A missing fixture fails loudly because a
+silent zero-row baseline would skew the `knowledge-continuity`
+dimension to zero in the scorecard verdict.
+
+### Replaying against a baseline
+
+PR5 of the singularity rollout consumes `baseline.json` to assert that
+post-feature recall improves by `delta_pct ≤ -35` on resume-time p95
+versus the recorded baseline. Re-run the same command after the
+feature ships and diff the two files; the runbook reviewer should
+see hit-rate non-decreasing and `resume_p95_ms` strictly lower.
+
+### Wiring into the scorecard
+
+The harness's `top_k_hit_rate` and `resume_p95_ms` are the inputs to
+`ScoreKnowledgeContinuity`, which produces the `knowledge-continuity`
+dimension score consumed by `parity scorecard`. The latency budget is
+50ms; scores decay linearly above that, with a 0.5 floor so a slow
+correct answer still beats a fast wrong one.
 
 ## Host profile toggle (`NTCLI_PROFILE`)
 
