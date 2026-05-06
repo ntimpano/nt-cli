@@ -359,16 +359,32 @@ func RunCLI(svc *Service, args []string, stdout, stderr io.Writer) int {
 		return 0
 
 	case "doctor":
-		// Doctor takes no arguments. Reject extras so typos like
-		// `nt-cli doctor --json` surface instead of silently ignoring.
-		if len(args) > 1 {
-			fmt.Fprintln(stderr, "usage: nt-cli doctor")
-			return 1
+		// Phase 6: doctor accepts an optional `--json` flag that
+		// emits a structured report including autopilot.session_close_rate
+		// and autopilot.threshold. Default surface is unchanged.
+		// Any other extra arg is rejected so genuine typos still
+		// surface instead of being silently ignored.
+		jsonOut := false
+		for _, a := range args[1:] {
+			switch a {
+			case "--json":
+				jsonOut = true
+			default:
+				fmt.Fprintln(stderr, "usage: nt-cli doctor [--json]")
+				return 1
+			}
 		}
 		report, err := svc.Doctor()
 		if err != nil {
 			fmt.Fprintf(stderr, "doctor failed: %v\n", err)
 			return 1
+		}
+		if jsonOut {
+			if err := writeDoctorJSON(stdout, report); err != nil {
+				fmt.Fprintf(stderr, "doctor --json failed: %v\n", err)
+				return 1
+			}
+			return 0
 		}
 		fmt.Fprintln(stdout, report.Summary)
 		// Surface non-ok integrity messages verbatim so users can act

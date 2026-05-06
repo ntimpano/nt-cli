@@ -119,6 +119,19 @@ type DoctorReport struct {
 	MemoryItemsCount  int
 	SessionsCount     int
 	Summary           string
+	// Autopilot exposes the Phase 6 workflow-autopilot metrics. Always
+	// populated (zero rate + 0.9 threshold on empty stores) so the
+	// JSON output schema stays stable.
+	Autopilot AutopilotReport
+}
+
+// AutopilotReport carries the workflow-autopilot SLO surface. The spec
+// fixes Threshold at 0.9 and requires SessionCloseRate ∈ [0,1] over a
+// rolling 14-day window. Stored as a struct (not loose fields) so the
+// JSON output groups them under `autopilot.*` cleanly.
+type AutopilotReport struct {
+	SessionCloseRate float64 // sessions with summary / sessions started in last 14 days
+	Threshold        float64 // hardcoded 0.9 per spec
 }
 
 // DoctorStore extends Store with the M3 diagnostic surface. Doctor

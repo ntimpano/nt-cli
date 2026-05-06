@@ -69,15 +69,21 @@ func TestRunner_Doctor_PropagatesError(t *testing.T) {
 	}
 }
 
-// TestRunner_Doctor_NoArgs proves doctor takes no arguments. Extra args
-// MUST surface a usage error so users don't silently ignore typos like
-// `nt-cli doctor --json`.
+// TestRunner_Doctor_NoArgs proves doctor takes no arguments other than
+// the documented `--json` flag. Extra args MUST surface a usage error
+// so users don't silently ignore typos.
+//
+// Phase 6 contract change: `--json` is now a recognised flag (was
+// previously cited as a typo example). The previous "any extra arg
+// is a typo" assertion was relaxed to "any UNKNOWN extra arg" — the
+// test below now uses `bogus` instead of `--json` to keep the
+// rejection behaviour pinned for genuine typos.
 func TestRunner_Doctor_NoArgs(t *testing.T) {
 	svc := app.NewService(newDoctorRunnerStore())
 	var stdout, stderr bytes.Buffer
-	code := app.RunCLI(svc, []string{"doctor", "extra"}, &stdout, &stderr)
+	code := app.RunCLI(svc, []string{"doctor", "bogus"}, &stdout, &stderr)
 	if code == 0 {
-		t.Fatalf("expected non-zero exit when extra args provided")
+		t.Fatalf("expected non-zero exit when unknown extra args provided")
 	}
 	if !strings.Contains(strings.ToLower(stderr.String()), "doctor") {
 		t.Fatalf("expected usage error mentioning doctor, got %q", stderr.String())
