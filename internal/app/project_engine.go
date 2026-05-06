@@ -18,9 +18,10 @@ var ErrNoActiveProject = errors.New("no active project")
 // state — callers invoke Confirm or Switch explicitly to change the active
 // project.
 type ProbeResult struct {
-	Status     string // "known" | "new" | "ambiguous" | "none"
-	Candidate  string // project name (existing or proposed)
-	Confidence string // "high" | "low"
+	Status     string    // "known" | "new" | "ambiguous" | "none"
+	Candidate  string    // project name (existing or proposed)
+	Candidates []Project // non-nil only when Status=="ambiguous"
+	Confidence string    // "high" | "low"
 	Reason     string
 }
 
@@ -28,6 +29,14 @@ type ProbeResult struct {
 // Kept narrow so unit tests only need to stub one method.
 type FingerprintLookup interface {
 	FindByFingerprint(fp string) (*Project, error)
+}
+
+// RootPathLookup is an optional extension of FingerprintLookup. When a store
+// also implements this interface, ProbeWithResolver uses it to detect the
+// "ambiguous" case: cwd is inside multiple registered project root_paths and
+// there is no stable git fingerprint to distinguish them.
+type RootPathLookup interface {
+	FindByRootPath(cwd string) ([]Project, error)
 }
 
 // ProjectStore is the full interface the engine needs to read/write projects.
@@ -124,6 +133,31 @@ func ComputeFingerprint(gitRoot, remoteURL string) string {
 func ProbeWithResolver(cwd string, lookup FingerprintLookup, resolver gitInfoResolver) (ProbeResult, error) {
 	gitRoot, remoteURL := resolver(cwd)
 	if gitRoot == "" {
+		// No git root: fall back to root_path prefix matching for ambiguous/known detection.
+		if rpl, ok := lookup.(RootPathLookup); ok {
+			matches, err := rpl.FindByRootPath(cwd)
+			if err != nil {
+				return ProbeResult{}, fmt.Errorf("probe: root path lookup: %w", err)
+			}
+			switch len(matches) {
+			case 1:
+				return ProbeResult{
+					Status:     "known",
+					Candidate:  matches[0].Name,
+					Confidence: "low",
+					Reason:     "cwd matched a single registered root_path (no git root)",
+				}, nil
+			default:
+				if len(matches) > 1 {
+					return ProbeResult{
+						Status:     "ambiguous",
+						Candidates: matches,
+						Confidence: "low",
+						Reason:     "cwd matched multiple registered root_paths and no git root is available to disambiguate",
+					}, nil
+				}
+			}
+		}
 		return ProbeResult{
 			Status:     "none",
 			Confidence: "low",

@@ -361,6 +361,12 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 			}
 			return response{JSONRPC: "2.0", ID: req.ID, Result: resourcesListResult(svc)}, true
 
+		case "resources/read":
+			if isNotification {
+				return response{}, false
+			}
+			return response{JSONRPC: "2.0", ID: req.ID, Result: resourcesReadResult(req.Params, svc)}, true
+
 		case "prompts/list":
 			if isNotification {
 				return response{}, false
@@ -729,9 +735,10 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				if err != nil {
 					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
 				}
+				activeID := svc.ActiveProjectID()
 				payload := make([]map[string]interface{}, 0, len(projects))
 				for _, p := range projects {
-					payload = append(payload, projectPayload(p))
+					payload = append(payload, projectPayloadWithActive(p, activeID))
 				}
 				b, _ := json.Marshal(payload)
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
@@ -1263,6 +1270,8 @@ func parseDateArg(raw string) (time.Time, error) {
 
 // projectPayload renders an app.Project as a JSON-serialisable map. Used by
 // project_current, project_list, and project_switch responses.
+// The activeID parameter marks which project is currently active (active=true).
+// Pass 0 to omit the active flag (e.g. for project_current where it's implicit).
 func projectPayload(p app.Project) map[string]interface{} {
 	return map[string]interface{}{
 		"id":        p.ID,
@@ -1271,7 +1280,50 @@ func projectPayload(p app.Project) map[string]interface{} {
 	}
 }
 
-// preBackupPathMCP returns the path for the pre-switch MCP backup snapshot.
+// projectPayloadWithActive renders an app.Project with the active flag set
+// based on whether p.ID == activeID. Used by project_list.
+func projectPayloadWithActive(p app.Project, activeID int64) map[string]interface{} {
+	m := projectPayload(p)
+	m["active"] = p.ID == activeID
+	return m
+}
+
+// resourcesReadParams is the input shape for resources/read.
+type resourcesReadParams struct {
+	URI string `json:"uri"`
+}
+
+// resourcesReadResult handles the resources/read call. The only supported URI
+// is "nt-cli://project/active" which returns the current active project as JSON.
+// Unknown URIs return an RPC error per the MCP protocol spec.
+func resourcesReadResult(rawParams json.RawMessage, svc *app.Service) interface{} {
+	var p resourcesReadParams
+	if len(rawParams) > 0 {
+		_ = json.Unmarshal(rawParams, &p)
+	}
+	if p.URI != "nt-cli://project/active" {
+		return map[string]interface{}{
+			"error": fmt.Sprintf("resource not found: %q", p.URI),
+		}
+	}
+	if svc.ProjectEng == nil {
+		return map[string]interface{}{"error": "project engine not available"}
+	}
+	proj, err := svc.ProjectEng.Current()
+	if err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+	payload, _ := json.Marshal(projectPayload(proj))
+	return map[string]interface{}{
+		"contents": []map[string]interface{}{
+			{
+				"uri":      "nt-cli://project/active",
+				"mimeType": "application/json",
+				"text":     string(payload),
+			},
+		},
+	}
+}
 // Mirrors project_runner.go's preBackupPath convention.
 func preBackupPathMCP() string {
 	dir := os.Getenv("HOME")
