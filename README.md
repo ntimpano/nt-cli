@@ -13,6 +13,14 @@ go run ./cmd/nt-cli list 20
 go run ./cmd/nt-cli get 3
 go run ./cmd/nt-cli update 3 "nuevo contenido"
 go run ./cmd/nt-cli delete 3
+go run ./cmd/nt-cli session start sess-1
+go run ./cmd/nt-cli session summary sess-1 "lo que hicimos"
+go run ./cmd/nt-cli session end sess-1
+go run ./cmd/nt-cli import ./obs.json
+go run ./cmd/nt-cli import --dry-run ./obs.json
+go run ./cmd/nt-cli backup /tmp/snap.db
+go run ./cmd/nt-cli restore /tmp/snap.db
+go run ./cmd/nt-cli doctor
 go run ./cmd/nt-cli mcp
 ```
 
@@ -44,6 +52,16 @@ Si no pasás flags, `save` usa el path legacy y no toca la metadata. Si pasás c
 - **Migración aditiva**: al abrir una base previa M1, la migración crea `memory_fts` y reconstruye el índice (`INSERT INTO memory_fts(memory_fts) VALUES('rebuild')`) para que las filas legacy queden buscables sin re-guardar nada.
 - **Latencia objetivo**: p95 < 50ms con 10k filas (medido en `TestRecall_P95Under50ms`).
 
+### Sessions, Import, Backup y Doctor (M3)
+
+`nt-cli` ahora cubre el ciclo completo de operación local:
+
+- **`session start|summary|end <id> [text]`**: registra el ciclo de vida de una sesión en la tabla `sessions` (schema v3). `start` falla si el id ya existe; `summary` y `end` requieren id existente. La tabla queda como log puro: no muta `memory_items`.
+- **`import [--dry-run] <file.json>`**: importa observaciones desde un JSON al store local. Idempotente: deduplica por `(topic_key, sha256(content))` mediante el índice único `memory_items_dedupe`. `--dry-run` muestra cuántas filas se insertarían sin tocar la base. Defaults: `type=manual`, `scope=project`. **No afecta a Engram**.
+- **`backup <path>`**: snapshot atómico vía `VACUUM INTO` — un único archivo `.db` portable, schema-aware, restaurable en otra máquina sin pérdida.
+- **`restore <path>`**: reemplaza la base activa por el snapshot. Hace una copia lateral `.restore-bak` antes de sobrescribir; si falla a mitad, restaura el original. Requiere reabrir el proceso (`Init` es forward-only e idempotente).
+- **`doctor`**: diagnóstico read-only. Imprime una línea con `schema_version`, salud de FTS5, `integrity_check` y row counts de `memory_items` y `sessions`. Mensajes de integridad no-ok se listan abajo del summary.
+
 ## Herramientas MCP
 
 | Tool | Descripción | Argumentos |
@@ -54,8 +72,17 @@ Si no pasás flags, `save` usa el path legacy y no toca la metadata. Si pasás c
 | `local_get` | Obtiene una nota por id | `{ id: integer }` |
 | `local_update` | Actualiza el contenido de una nota por id | `{ id: integer, content: string }` |
 | `local_delete` | Elimina una nota por id | `{ id: integer }` |
+| `local_session_start` | Inicia una sesión local | `{ id: string }` |
+| `local_session_summary` | Adjunta resumen a la sesión | `{ id: string, summary: string }` |
+| `local_session_end` | Cierra la sesión local | `{ id: string }` |
+| `local_import` | Importa observaciones desde JSON (idempotente) | `{ path: string, dry_run?: boolean }` |
+| `local_backup` | Snapshot portable del store local | `{ path: string }` |
+| `local_restore` | Restaura el store local desde un snapshot | `{ path: string }` |
+| `local_doctor` | Diagnóstico read-only del store local | `{}` |
 
 `local_get` y `local_update` reportan errores con `isError: true` cuando el id no existe, el id es inválido o el contenido es vacío/whitespace.
+
+Todos los tools `local_*` son **local-only**: operan exclusivamente sobre `~/.nt-cli/data.db` y no comunican con Engram.
 
 ## Integración con OpenCode (MCP)
 
