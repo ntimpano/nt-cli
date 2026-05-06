@@ -62,7 +62,8 @@ func TestMCP_LocalDoctor_DispatchHealthy(t *testing.T) {
 
 // TestMCP_LocalDoctor_AdvertisedSchema confirms tools/list advertises
 // local_doctor with zero required args + Spanish description containing
-// the mandatory "local-only" / "engram" markers per parity convention.
+// the mandatory "local-only" + "backend externo" markers per parity
+// convention.
 func TestMCP_LocalDoctor_AdvertisedSchema(t *testing.T) {
 	tools := advertisedTools(t)
 	var doctor map[string]interface{}
@@ -77,7 +78,7 @@ func TestMCP_LocalDoctor_AdvertisedSchema(t *testing.T) {
 	}
 	desc, _ := doctor["description"].(string)
 	low := strings.ToLower(desc)
-	for _, must := range []string{"local-only", "engram"} {
+	for _, must := range []string{"local-only", "backend externo"} {
 		if !strings.Contains(low, must) {
 			t.Fatalf("description missing %q: %q", must, desc)
 		}

@@ -119,8 +119,8 @@ func TestMCP_LocalImport_ValidationErrors(t *testing.T) {
 }
 
 // TestMCP_LocalImport_AdvertisedSchema: tools/list MUST expose
-// local_import with `path` required and Spanish local-only/engram
-// markers.
+// local_import with `path` required and Spanish local-only + no-external-
+// backend markers.
 func TestMCP_LocalImport_AdvertisedSchema(t *testing.T) {
 	tools := advertisedTools(t)
 	var found map[string]interface{}
@@ -143,7 +143,8 @@ func TestMCP_LocalImport_AdvertisedSchema(t *testing.T) {
 	if !strings.Contains(lower, "local-only") && !strings.Contains(lower, "local sqlite") {
 		t.Fatalf("description must mark local-only, got %q", desc)
 	}
-	if !strings.Contains(lower, "engram") {
-		t.Fatalf("description must disambiguate from Engram, got %q", desc)
+	if !strings.Contains(lower, "backend externo") &&
+		!strings.Contains(lower, "external backend") {
+		t.Fatalf("description must disambiguate from external backends, got %q", desc)
 	}
 }

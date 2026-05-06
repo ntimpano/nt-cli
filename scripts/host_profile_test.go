@@ -1,5 +1,5 @@
 // Package scripts_test drives the opencode-mcp-dev.sh wrapper as a black box
-// to verify the host profile toggle (PR4 of the engram-offramp slice).
+// to verify the host profile toggle (PR4 of the nt-cli rollout slice).
 //
 // The wrapper resolves NTCLI_PROFILE into one of {shadow, pilot}. The
 // resolved profile is observable via two paths:
@@ -63,7 +63,7 @@ func getPath() string {
 }
 
 // TestHostProfile_Default proves: when NTCLI_PROFILE is unset, the wrapper
-// resolves to "shadow" (the safe default that keeps Engram enabled).
+// resolves to "shadow" (the safe default for the rollout's shadow phase).
 // Spec mapping: G5/G6 docs visibility — operators must be able to see which
 // profile is active.
 func TestHostProfile_Default(t *testing.T) {
@@ -89,8 +89,8 @@ func TestHostProfile_Shadow(t *testing.T) {
 }
 
 // TestHostProfile_Pilot proves: NTCLI_PROFILE=pilot resolves to "pilot",
-// which is the documented Engram-off pilot profile.
-// Spec scenario: "Pilot profile disables Engram memory tools".
+// the documented pilot profile that makes nt-cli the canonical backend.
+// Spec scenario: "Pilot profile makes nt-cli the canonical memory backend".
 func TestHostProfile_Pilot(t *testing.T) {
 	stdout, _, code := runWrapper(t, []string{"NTCLI_PROFILE=pilot"}, "--print-profile")
 	if code != 0 {

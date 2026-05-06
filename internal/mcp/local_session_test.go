@@ -170,9 +170,10 @@ func TestMCP_LocalSession_ValidationErrors(t *testing.T) {
 }
 
 // TestMCP_LocalSession_AdvertisedSchemas proves tools/list exposes the
-// three new tools with correct required fields and local-only/engram
-// markers (TestToolDescriptions_MarkLocalOnly only enforces the legacy
-// set; this test extends the contract to the new tools).
+// three new tools with correct required fields and local-only +
+// no-external-backend markers (TestToolDescriptions_MarkLocalOnly only
+// enforces the legacy set; this test extends the contract to the new
+// tools).
 func TestMCP_LocalSession_AdvertisedSchemas(t *testing.T) {
 	tools := advertisedTools(t)
 	byName := map[string]map[string]interface{}{}
@@ -206,8 +207,9 @@ func TestMCP_LocalSession_AdvertisedSchemas(t *testing.T) {
 			if !strings.Contains(lower, "local-only") && !strings.Contains(lower, "local sqlite") {
 				t.Fatalf("tool %q description must mark local-only, got %q", tc.name, desc)
 			}
-			if !strings.Contains(lower, "engram") {
-				t.Fatalf("tool %q description must disambiguate from Engram, got %q", tc.name, desc)
+			if !strings.Contains(lower, "backend externo") &&
+				!strings.Contains(lower, "external backend") {
+				t.Fatalf("tool %q description must disambiguate from external backends, got %q", tc.name, desc)
 			}
 		})
 	}
