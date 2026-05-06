@@ -71,6 +71,13 @@ type localRecallArgs struct {
 	Type  string `json:"type,omitempty"`
 	Since string `json:"since,omitempty"`
 	Until string `json:"until,omitempty"`
+	// PR4b: opt-in to surface rows that have been superseded by another
+	// row. Only meaningful when NTCLI_FF_GRAPH=1; the service layer
+	// routes to RecallGraphAware in that case and honors the flag.
+	// With FF off the field is parsed but ignored — keeping the field
+	// present in the args struct lets newer clients call the tool the
+	// same way regardless of server-side flag state.
+	IncludeSuperseded bool `json:"include_superseded,omitempty"`
 }
 
 type localContextArgs struct {
@@ -111,6 +118,51 @@ type localPathArgs struct {
 
 // parityScorecardArgs maps the JSON-RPC tool input to a parity.ScorecardSignals
 // value. JSON keys use snake_case to match nt-cli's MCP convention.
+// localRelateArgs and graphNeighborsArgs are the input shapes for the
+// PR3c memory-graph tools. They are advertised and dispatched only when
+// NTCLI_FF_GRAPH=1 (see graphFeatureEnabled). Keeping them flag-gated
+// preserves the legacy MCP surface for clients that have not opted in.
+type localRelateArgs struct {
+	SourceID     int64  `json:"source_id"`
+	TargetID     int64  `json:"target_id"`
+	RelationType string `json:"relation_type"`
+}
+
+type graphNeighborsArgs struct {
+	ID        int64  `json:"id"`
+	Direction string `json:"direction"`
+}
+
+// graphFeatureEnabled reports whether the PR3c graph tools are exposed.
+// Default OFF: only NTCLI_FF_GRAPH=1 opts the surface in. Implemented as
+// a function (not a constant) so tests can flip the env mid-run.
+func graphFeatureEnabled() bool {
+	return strings.TrimSpace(os.Getenv("NTCLI_FF_GRAPH")) == "1"
+}
+
+// actionableRecallEnabled reports whether the PR5 actionable-recall
+// response shape is on. Default OFF: NTCLI_FF_ACTIONABLE=1 opts the
+// caller in. With the flag OFF the local_recall payload stays
+// byte-identical to the pre-PR5 raw item array — backward compatible
+// for legacy clients per the spec's "Recall MUST rank by FTS relevance"
+// requirement.
+func actionableRecallEnabled() bool {
+	return strings.TrimSpace(os.Getenv("NTCLI_FF_ACTIONABLE")) == "1"
+}
+
+// parseRelationDirection maps the public string form to the internal
+// enum. Unknown / empty values default to outbound because forward
+// links are the most common navigation case and forcing callers to
+// always spell it would be noise.
+func parseRelationDirection(raw string) app.RelationDirection {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "inbound":
+		return app.RelationDirectionInbound
+	default:
+		return app.RelationDirectionOutbound
+	}
+}
+
 type parityScorecardArgs struct {
 	CoreOps                int `json:"core_ops"`
 	MetadataRetrieval      int `json:"metadata_retrieval"`
@@ -360,15 +412,21 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				hasFilter := strings.TrimSpace(args.Type) != "" ||
 					strings.TrimSpace(args.Since) != "" ||
 					strings.TrimSpace(args.Until) != ""
+				// PR4b: when NTCLI_FF_GRAPH=1 OR include_superseded was
+				// passed, route through RecallWithOptions so the service
+				// layer can dispatch to RecallGraphAware. With the flag
+				// OFF and no opts, behavior is byte-identical to PR2b.
+				useOpts := hasFilter || graphFeatureEnabled() || args.IncludeSuperseded || actionableRecallEnabled()
 				var (
 					items []app.MemoryItem
 					err   error
 				)
-				if hasFilter {
+				if useOpts {
 					opts := app.RecallOptions{
-						Query: args.Query,
-						Type:  args.Type,
-						Limit: args.Limit,
+						Query:             args.Query,
+						Type:              args.Type,
+						Limit:             args.Limit,
+						IncludeSuperseded: args.IncludeSuperseded,
 					}
 					if args.Since != "" {
 						t, perr := parseDateArg(args.Since)
@@ -390,6 +448,17 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				}
 				if err != nil {
 					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				// PR5: when NTCLI_FF_ACTIONABLE=1, wrap the raw items
+				// in the actionable-recall response shape (matches +
+				// next_action + checklist + inferred_paths). With the
+				// flag OFF, the legacy raw-array payload is returned
+				// unchanged — backward-compatible for any client that
+				// has not opted in to the new contract.
+				if actionableRecallEnabled() {
+					actionable := app.BuildActionableRecall(items)
+					ab, _ := json.Marshal(actionableRecallPayload(actionable))
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(ab))}, true
 				}
 				b, _ := json.Marshal(memoryItemsPayload(items))
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
@@ -553,6 +622,44 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				}
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
 
+			case "relate":
+				// PR3c: gated by NTCLI_FF_GRAPH=1. Falling through to
+				// "tool not found" when the flag is off keeps the legacy
+				// surface byte-identical for clients that haven't opted in.
+				if !graphFeatureEnabled() {
+					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "tool not found"}}, true
+				}
+				var args localRelateArgs
+				if err := json.Unmarshal(params.Arguments, &args); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+				}
+				if err := svc.Relate(args.SourceID, args.TargetID, args.RelationType); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("relation %d -> %d (%s)", args.SourceID, args.TargetID, strings.TrimSpace(args.RelationType)))}, true
+
+			case "graph_neighbors":
+				// PR3c: same flag gate as relate. Read path mirrors the
+				// write path so callers don't see asymmetric availability.
+				if !graphFeatureEnabled() {
+					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "tool not found"}}, true
+				}
+				var args graphNeighborsArgs
+				if len(params.Arguments) > 0 {
+					if err := json.Unmarshal(params.Arguments, &args); err != nil {
+						return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+					}
+				}
+				rows, err := svc.Neighbors(args.ID, parseRelationDirection(args.Direction))
+				if err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				b, err := json.Marshal(memoryRelationsPayload(rows))
+				if err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("encode neighbors: " + err.Error())}, true
+				}
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
+
 			default:
 				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "tool not found"}}, true
 			}
@@ -681,7 +788,7 @@ func toolError(msg string) map[string]interface{} {
 // toolsListResult returns the canonical advertised tools payload, used by
 // both `tools` and `tools/list` JSON-RPC methods to keep them in sync.
 func toolsListResult() map[string]interface{} {
-	return map[string]interface{}{
+	result := map[string]interface{}{
 		"tools": []map[string]interface{}{
 			{
 				"name":        "local_save",
@@ -863,6 +970,59 @@ func toolsListResult() map[string]interface{} {
 			},
 		},
 	}
+	if graphFeatureEnabled() {
+		// PR3c: append the memory-graph tools only when the operator
+		// has opted in via NTCLI_FF_GRAPH=1. Built as separate appends
+		// to keep the legacy literal block byte-identical and easy to
+		// diff against earlier milestones.
+		tools, _ := result["tools"].([]map[string]interface{})
+		// PR4b: opt-in `include_superseded` arg on local_recall when
+		// the graph FF is on. Mutates the descriptor in place so the
+		// FF-off literal stays byte-identical for legacy clients.
+		for _, tool := range tools {
+			if tool["name"] != "local_recall" {
+				continue
+			}
+			schema, _ := tool["inputSchema"].(map[string]interface{})
+			props, _ := schema["properties"].(map[string]interface{})
+			if props != nil {
+				props["include_superseded"] = map[string]interface{}{
+					"type":        "boolean",
+					"description": "Incluye filas que han sido superseded por otra (PR4 graph-aware). Solo aplica con NTCLI_FF_GRAPH=1.",
+				}
+			}
+			break
+		}
+		tools = append(tools,
+			map[string]interface{}{
+				"name":        "relate",
+				"description": "Crea una relación dirigida entre dos memorias locales (memory_relations). Gated por NTCLI_FF_GRAPH=1. relation_type debe pertenecer al whitelist (related, refines, supersedes, derives_from, mentions).",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"source_id":     map[string]interface{}{"type": "integer"},
+						"target_id":     map[string]interface{}{"type": "integer"},
+						"relation_type": map[string]interface{}{"type": "string"},
+					},
+					"required": []string{"source_id", "target_id", "relation_type"},
+				},
+			},
+			map[string]interface{}{
+				"name":        "graph_neighbors",
+				"description": "Lista las relaciones outbound o inbound de la memoria con el id dado, ordenadas (created_at DESC, id DESC). Gated por NTCLI_FF_GRAPH=1. direction acepta 'outbound' (default) o 'inbound'.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"id":        map[string]interface{}{"type": "integer"},
+						"direction": map[string]interface{}{"type": "string"},
+					},
+					"required": []string{"id"},
+				},
+			},
+		)
+		result["tools"] = tools
+	}
+	return result
 }
 
 // memoryItemPayload renders a MemoryItem as a JSON-serialisable map with
@@ -889,6 +1049,46 @@ func memoryItemsPayload(items []app.MemoryItem) []map[string]interface{} {
 		row["topic_key"] = it.TopicKey
 		row["scope"] = it.Scope
 		out = append(out, row)
+	}
+	return out
+}
+
+// actionableRecallPayload renders an app.ActionableRecallResponse as a
+// JSON-serialisable map with snake_case keys. The Matches slice reuses
+// memoryItemsPayload so PR5's wrapped shape stays consistent with the
+// legacy item rendering — only the outer envelope changes when the
+// FF is on. Nil slices are coerced to empty arrays so the wire shape
+// is stable (callers can iterate without nil checks).
+func actionableRecallPayload(resp app.ActionableRecallResponse) map[string]interface{} {
+	checklist := resp.Checklist
+	if checklist == nil {
+		checklist = []string{}
+	}
+	paths := resp.InferredPaths
+	if paths == nil {
+		paths = []string{}
+	}
+	return map[string]interface{}{
+		"matches":        memoryItemsPayload(resp.Matches),
+		"next_action":    resp.NextAction,
+		"checklist":      checklist,
+		"inferred_paths": paths,
+	}
+}
+
+// memoryRelationsPayload renders []MemoryRelation as JSON-friendly maps// with snake_case keys so MCP clients can consume the rows without
+// dealing with Go's default capital-cased struct tags. Mirrors
+// memoryItemsPayload so the surface stays consistent across tools.
+func memoryRelationsPayload(rels []app.MemoryRelation) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(rels))
+	for _, r := range rels {
+		out = append(out, map[string]interface{}{
+			"id":            r.ID,
+			"source_id":     r.SourceID,
+			"target_id":     r.TargetID,
+			"relation_type": r.RelationType,
+			"created_at":    r.CreatedAt.UTC().Format(time.RFC3339Nano),
+		})
 	}
 	return out
 }

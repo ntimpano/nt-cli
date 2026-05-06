@@ -22,6 +22,24 @@ type Store interface {
 	Close() error
 }
 
+// GraphRecallStore extends Store with the PR4 graph-aware recall path.
+// Optional capability — same defensive type-assert pattern as
+// FilterStore / RelationStore. The service routes to RecallGraphAware
+// only when (a) the env feature flag NTCLI_FF_GRAPH=1 is set AND (b)
+// the underlying store implements this interface. Legacy fakes that
+// don't implement it degrade to the plain Recall path so the FF stays
+// safe to flip in mixed environments.
+type GraphRecallStore interface {
+	RecallGraphAware(opts RecallOptions) ([]MemoryItem, error)
+}
+
+// graphRecallEnabled reports whether the PR4 graph-aware recall path
+// is opted in via env. Implemented as a function (not a constant) so
+// tests can flip the env mid-run, mirroring the MCP-side helper.
+func graphRecallEnabled() bool {
+	return strings.TrimSpace(os.Getenv("NTCLI_FF_GRAPH")) == "1"
+}
+
 // MetadataStore extends Store with structured-memory operations introduced by
 // the M1 milestone. Implementations of Store are not required to satisfy this
 // interface; callers MUST type-assert and degrade gracefully when the backing
@@ -133,6 +151,20 @@ type RecallOptions struct {
 	Since time.Time
 	Until time.Time
 	Limit int
+
+	// IncludeSuperseded opts back into rows that have been superseded
+	// by another row (predecessors of a `supersedes` edge). When false
+	// (default) RecallGraphAware suppresses them so the surface only
+	// shows current revisions. The plain Recall / RecallFiltered paths
+	// ignore this field — supersedes-aware filtering is exclusive to
+	// the graph-aware path.
+	IncludeSuperseded bool
+
+	// GraphAware requests the graph-aware ranking path. Wired by the
+	// service layer based on the NTCLI_FF_GRAPH feature flag — the
+	// store reads it directly so legacy fakes that don't implement
+	// graph capability never see this option engaged.
+	GraphAware bool
 }
 
 // SaveRequest carries the optional metadata fields accepted by the M1 save
@@ -223,6 +255,19 @@ func (s *Service) Recall(query string, limit int) ([]MemoryItem, error) {
 	if limit <= 0 {
 		limit = 10
 	}
+	// PR4: when NTCLI_FF_GRAPH=1 AND the store supports graph-aware
+	// recall, route to RecallGraphAware so the same surface gets
+	// supersedes-suppression and bounded boost. Capability missing →
+	// silent fall-through to plain Recall (legacy fakes still work).
+	if graphRecallEnabled() {
+		if gs, ok := s.repo.(GraphRecallStore); ok {
+			return gs.RecallGraphAware(RecallOptions{
+				Query:      clean,
+				Limit:      limit,
+				GraphAware: true,
+			})
+		}
+	}
 	return s.repo.Recall(clean, limit)
 }
 
@@ -239,14 +284,24 @@ func (s *Service) RecallWithOptions(opts RecallOptions) ([]MemoryItem, error) {
 	if clean == "" {
 		return nil, errors.New("query is empty")
 	}
-	filt, ok := s.repo.(FilterStore)
-	if !ok {
-		return nil, errors.New("store does not support filter operations")
-	}
 	opts.Query = clean
 	opts.Type = strings.TrimSpace(opts.Type)
 	if opts.Limit <= 0 {
 		opts.Limit = 10
+	}
+	// PR4: same routing rule as Recall(). When the FF is ON AND the
+	// store implements GraphRecallStore, dispatch the graph-aware
+	// path — it honors IncludeSuperseded for free. When the FF is
+	// OFF, behavior is byte-identical to PR2b.
+	if graphRecallEnabled() {
+		if gs, ok := s.repo.(GraphRecallStore); ok {
+			opts.GraphAware = true
+			return gs.RecallGraphAware(opts)
+		}
+	}
+	filt, ok := s.repo.(FilterStore)
+	if !ok {
+		return nil, errors.New("store does not support filter operations")
 	}
 	return filt.RecallFiltered(opts)
 }

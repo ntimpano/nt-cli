@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "nt-cli://actionable_recall.schema.json",
+  "title": "ActionableRecallResponse",
+  "description": "Wire shape returned by local_recall when NTCLI_FF_ACTIONABLE=1.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["matches", "next_action", "checklist", "inferred_paths"],
+  "properties": {
+    "matches": {
+      "type": "array",
+      "description": "Original recall items in rank order.",
+      "items": {
+        "type": "object",
+        "required": ["id", "content", "created_at", "updated_at", "title", "type", "topic_key", "scope"],
+        "properties": {
+          "id":         {"type": "integer"},
+          "content":    {"type": "string"},
+          "created_at": {"type": "string"},
+          "updated_at": {"type": "string"},
+          "title":      {"type": "string"},
+          "type":       {"type": "string"},
+          "topic_key":  {"type": "string"},
+          "scope":      {"type": "string"}
+        }
+      }
+    },
+    "next_action": {
+      "type": "string",
+      "description": "Empty string when top match type is not in {decision, bugfix, pattern} or matches is empty."
+    },
+    "checklist": {
+      "type": "array",
+      "description": "Up to 5 items extracted from the top match's bullet lines.",
+      "maxItems": 5,
+      "items": {"type": "string"}
+    },
+    "inferred_paths": {
+      "type": "array",
+      "description": "Unique file paths mentioned in the top 3 matches' content, first-seen order.",
+      "items": {"type": "string"}
+    }
+  }
+}
