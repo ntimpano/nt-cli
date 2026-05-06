@@ -541,3 +541,47 @@ func TestRunbook_ParityScorecardContract(t *testing.T) {
 		}
 	}
 }
+
+// TestRunbook_ContinuityHarness proves task 2.5 of ntcli-singularity:
+// the runbook MUST document how operators record and replay the
+// knowledge-continuity baseline that feeds the scorecard's
+// KnowledgeContinuity dimension and is consumed by PR5 to assert
+// `delta_pct ≤ -35`. Locking the wording here keeps the harness
+// contract (fixture path, baseline.json output, CLI command) from
+// drifting silently between code and operator docs.
+func TestRunbook_ContinuityHarness(t *testing.T) {
+	doc := loadFile(t, runbookPath(t))
+	lower := strings.ToLower(doc)
+
+	// The runbook MUST introduce the harness as a discoverable section.
+	containsAllNoCase(t, doc, []string{
+		"knowledge-continuity harness",
+	}, "runbook continuity harness section")
+
+	// Operators MUST be able to find the CLI command, the fixture
+	// path, and the baseline output filename. These are the three
+	// nouns the runbook needs so a new on-call can run the harness
+	// without reading the code.
+	for _, phrase := range []string{
+		"parity continuity",
+		"testdata/parity/queries.json",
+		"baseline.json",
+	} {
+		if !strings.Contains(lower, phrase) {
+			t.Fatalf("runbook MUST document continuity harness artifact %q", phrase)
+		}
+	}
+
+	// The harness output feeds the KnowledgeContinuity scorecard
+	// dimension and is replayed by PR5 to assert delta_pct ≤ -35.
+	// Both relationships MUST be discoverable so operators understand
+	// why the baseline matters.
+	for _, phrase := range []string{
+		"knowledge-continuity",
+		"delta_pct",
+	} {
+		if !strings.Contains(lower, phrase) {
+			t.Fatalf("runbook MUST document continuity harness consumer %q", phrase)
+		}
+	}
+}
