@@ -655,9 +655,13 @@ func (s *Service) Backup(dst string) error {
 }
 
 // Restore replaces the live store with the contents of src. Same
-// capability check + trim semantics as Backup. Callers are expected to
-// re-Init the service afterwards if the artifact predates the current
-// schema version — Init is forward-only and idempotent.
+// capability check + trim semantics as Backup. A pre-restore safety
+// snapshot is taken automatically into the default backup directory
+// before the restore runs (task 4.4). If the snapshot fails, the
+// restore is aborted to avoid data loss.
+// Callers are expected to re-Init the service afterwards if the
+// artifact predates the current schema version — Init is forward-only
+// and idempotent.
 func (s *Service) Restore(src string) error {
 	clean := strings.TrimSpace(src)
 	if clean == "" {
@@ -667,7 +671,17 @@ func (s *Service) Restore(src string) error {
 	if !ok {
 		return errors.New("store does not support restore operations")
 	}
-	return bs.Restore(clean)
+	doSnapshot := func() error {
+		snapPath, err := AutoBackupPath()
+		if err != nil {
+			return err
+		}
+		return bs.Backup(snapPath)
+	}
+	doRestore := func() error {
+		return bs.Restore(clean)
+	}
+	return SafeRestore(doSnapshot, doRestore)
 }
 
 // Doctor returns the read-only diagnostic snapshot from the underlying
