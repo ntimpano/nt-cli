@@ -197,6 +197,27 @@ type DoctorStore interface {
 type FilterStore interface {
 	RecallFiltered(opts RecallOptions) ([]MemoryItem, error)
 	Context(n int, scope string) ([]MemoryItem, error)
+	// ContextFiltered is the project-scoped extension of Context (PR2b).
+	ContextFiltered(opts ContextOptions) ([]MemoryItem, error)
+	// ListFiltered is the project-scoped extension of List (PR2b).
+	ListFiltered(opts ListOptions) ([]MemoryItem, error)
+}
+
+// ContextOptions carries parameters for the Context surface when
+// project-scoped filtering is required.
+type ContextOptions struct {
+	N           int
+	Scope       string
+	ProjectID   int64 // 0 = no filter; >0 = filter by project_id
+	AllProjects bool  // true = bypass ProjectID filter
+}
+
+// ListOptions carries parameters for the List surface when project-scoped
+// filtering is required.
+type ListOptions struct {
+	Limit       int
+	ProjectID   int64 // 0 = no filter; >0 = filter by project_id
+	AllProjects bool  // true = bypass ProjectID filter
 }
 
 // RecallOptions carries the optional filter dimensions accepted by the
@@ -205,12 +226,19 @@ type FilterStore interface {
 //   - Type:  empty string = no type filter.
 //   - Since/Until: zero time = no lower/upper bound on created_at.
 //   - Limit: ≤0 defaults to 10 at the service layer.
+//   - ProjectID: 0 = no project filter; >0 = only rows for that project.
+//   - AllProjects: true = bypass ProjectID filter (cross-project read).
 type RecallOptions struct {
 	Query string
 	Type  string
 	Since time.Time
 	Until time.Time
 	Limit int
+
+	// ProjectID scopes the recall to a specific project. 0 = no filter.
+	ProjectID int64
+	// AllProjects bypasses the ProjectID filter when true.
+	AllProjects bool
 
 	// IncludeSuperseded opts back into rows that have been superseded
 	// by another row (predecessors of a `supersedes` edge). When false
@@ -237,13 +265,33 @@ type SaveRequest struct {
 	TopicKey  string
 	Scope     string
 	CreatedAt time.Time
+	// ProjectID stamps the active project on the saved row.
+	// 0 means "no project" (legacy rows); >0 scopes the row.
+	ProjectID int64
 }
 
 // ErrNotFound is the stable sentinel returned when a note id does not exist.
 var ErrNotFound = errors.New("note not found")
 
 type Service struct {
-	repo Store
+	repo            Store
+	activeProjectID int64 // resolved at boot, 0 = no project scoping
+	// ProjectEngine handles project detection/switch/list/current.
+	// Wired at boot when the store implements ProjectStore.
+	// May be nil when running against legacy test fakes.
+	ProjectEng ProjectEngine
+}
+
+// SetActiveProject injects the active project id into the service so all
+// read/write paths are automatically scoped. Called once at boot from main
+// after Init() resolves the active_project pointer.
+func (s *Service) SetActiveProject(id int64) {
+	s.activeProjectID = id
+}
+
+// ActiveProjectID returns the currently active project id (0 = unscoped).
+func (s *Service) ActiveProjectID() int64 {
+	return s.activeProjectID
 }
 
 type MemoryItem struct {
@@ -260,7 +308,14 @@ type MemoryItem struct {
 }
 
 func NewService(repo Store) *Service {
-	return &Service{repo: repo}
+	svc := &Service{repo: repo}
+	// Auto-wire the project engine when the store implements ProjectStore.
+	// This covers both production (SQLiteStore) and test doubles that embed
+	// ProjectStore-like capabilities.
+	if ps, ok := repo.(ProjectStore); ok {
+		svc.ProjectEng = newProjectEngine(ps, realGitResolver)
+	}
+	return svc
 }
 
 func (s *Service) Init() error {
@@ -303,6 +358,10 @@ func (s *Service) SaveWithMeta(req SaveRequest) (int64, error) {
 	req.Content = clean
 	if req.CreatedAt.IsZero() {
 		req.CreatedAt = time.Now().UTC()
+	}
+	// Stamp active project if not explicitly set by the caller
+	if req.ProjectID == 0 && s.activeProjectID > 0 {
+		req.ProjectID = s.activeProjectID
 	}
 	return meta.SaveWithMeta(req)
 }
@@ -363,6 +422,10 @@ func (s *Service) RecallWithOptions(opts RecallOptions) ([]MemoryItem, error) {
 	if !ok {
 		return nil, errors.New("store does not support filter operations")
 	}
+	// Inject active project scoping when not explicitly set
+	if opts.ProjectID == 0 && s.activeProjectID > 0 {
+		opts.ProjectID = s.activeProjectID
+	}
 	return filt.RecallFiltered(opts)
 }
 
@@ -379,7 +442,11 @@ func (s *Service) Context(n int, scope string) ([]MemoryItem, error) {
 		n = 10
 	}
 	scope = strings.TrimSpace(scope)
-	return filt.Context(n, scope)
+	return filt.ContextFiltered(ContextOptions{
+		N:         n,
+		Scope:     scope,
+		ProjectID: s.activeProjectID,
+	})
 }
 
 func (s *Service) List(limit int) ([]MemoryItem, error) {

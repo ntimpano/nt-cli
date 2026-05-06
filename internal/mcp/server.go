@@ -116,6 +116,21 @@ type localPathArgs struct {
 	Path string `json:"path"`
 }
 
+// projectProbeArgs is the input shape for the project_probe tool (task 3.1).
+type projectProbeArgs struct {
+	CWD string `json:"cwd"`
+}
+
+// projectConfirmArgs is the input shape for the project_confirm tool (task 3.2).
+type projectConfirmArgs struct {
+	Candidate string `json:"candidate"`
+}
+
+// projectSwitchArgs is the input shape for the project_switch tool (task 3.2).
+type projectSwitchArgs struct {
+	ID int64 `json:"id"`
+}
+
 // parityScorecardArgs maps the JSON-RPC tool input to a parity.ScorecardSignals
 // value. JSON keys use snake_case to match nt-cli's MCP convention.
 // localRelateArgs and graphNeighborsArgs are the input shapes for the
@@ -344,7 +359,7 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 			if isNotification {
 				return response{}, false
 			}
-			return response{JSONRPC: "2.0", ID: req.ID, Result: map[string]interface{}{"resources": []interface{}{}}}, true
+			return response{JSONRPC: "2.0", ID: req.ID, Result: resourcesListResult(svc)}, true
 
 		case "prompts/list":
 			if isNotification {
@@ -660,6 +675,88 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				}
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
 
+			case "project_probe":
+				if svc.ProjectEng == nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("project engine not available")}, true
+				}
+				var args projectProbeArgs
+				_ = json.Unmarshal(params.Arguments, &args)
+				cwd := strings.TrimSpace(args.CWD)
+				if cwd == "" {
+					cwd, _ = os.Getwd()
+				}
+				res, err := svc.ProjectEng.Probe(cwd)
+				if err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				b, _ := json.Marshal(map[string]interface{}{
+					"status":     res.Status,
+					"candidate":  res.Candidate,
+					"confidence": res.Confidence,
+					"reason":     res.Reason,
+				})
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
+
+			case "project_confirm":
+				if svc.ProjectEng == nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("project engine not available")}, true
+				}
+				var args projectConfirmArgs
+				if err := json.Unmarshal(params.Arguments, &args); err != nil || strings.TrimSpace(args.Candidate) == "" {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("candidate is required")}, true
+				}
+				if err := svc.ProjectEng.Confirm(strings.TrimSpace(args.Candidate)); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("confirmed project %q", strings.TrimSpace(args.Candidate)))}, true
+
+			case "project_current":
+				if svc.ProjectEng == nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("project engine not available")}, true
+				}
+				p, err := svc.ProjectEng.Current()
+				if err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				b, _ := json.Marshal(projectPayload(p))
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
+
+			case "project_list":
+				if svc.ProjectEng == nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("project engine not available")}, true
+				}
+				projects, err := svc.ProjectEng.List()
+				if err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				payload := make([]map[string]interface{}, 0, len(projects))
+				for _, p := range projects {
+					payload = append(payload, projectPayload(p))
+				}
+				b, _ := json.Marshal(payload)
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
+
+			case "project_switch":
+				if svc.ProjectEng == nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("project engine not available")}, true
+				}
+				var args projectSwitchArgs
+				if err := json.Unmarshal(params.Arguments, &args); err != nil || args.ID <= 0 {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("id is required and must be > 0")}, true
+				}
+				// Pre-switch backup per spec task 2.8 / 3.7 contract.
+				_ = svc.Backup(preBackupPathMCP())
+				if err := svc.ProjectEng.Switch(args.ID); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				svc.SetActiveProject(args.ID)
+				p, err := svc.ProjectEng.Current()
+				if err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				b, _ := json.Marshal(projectPayload(p))
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
+
 			default:
 				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "tool not found"}}, true
 			}
@@ -789,8 +886,7 @@ func toolError(msg string) map[string]interface{} {
 // both `tools` and `tools/list` JSON-RPC methods to keep them in sync.
 func toolsListResult() map[string]interface{} {
 	result := map[string]interface{}{
-		"tools": []map[string]interface{}{
-			{
+		"tools": []map[string]interface{}{			{
 				"name":        "local_save",
 				"description": "Guarda una nota local en SQLite (local-only; no usa backend externo).",
 				"inputSchema": map[string]interface{}{
@@ -970,6 +1066,61 @@ func toolsListResult() map[string]interface{} {
 			},
 		},
 	}
+	// PR3 (project-context): append project tools unconditionally — they are
+	// always-on (no feature flag) and always safe to advertise because the
+	// tool handlers guard against a nil ProjectEng at dispatch time.
+	tools, _ := result["tools"].([]map[string]interface{})
+	tools = append(tools,
+		map[string]interface{}{
+			"name":        "project_probe",
+			"description": "Detecta el contexto de proyecto desde el cwd dado (local-only; no afecta backend externo). Solo lectura — no cambia el proyecto activo.",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"cwd": map[string]interface{}{"type": "string", "description": "Working directory to probe (defaults to server cwd)"},
+				},
+			},
+		},
+		map[string]interface{}{
+			"name":        "project_confirm",
+			"description": "Confirma el candidato propuesto por project_probe y lo establece como proyecto activo (local-only; no afecta backend externo).",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"candidate": map[string]interface{}{"type": "string"},
+				},
+				"required": []string{"candidate"},
+			},
+		},
+		map[string]interface{}{
+			"name":        "project_current",
+			"description": "Retorna el proyecto activo actual (local-only; no afecta backend externo).",
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		map[string]interface{}{
+			"name":        "project_list",
+			"description": "Lista todos los proyectos registrados (local-only; no afecta backend externo).",
+			"inputSchema": map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+			},
+		},
+		map[string]interface{}{
+			"name":        "project_switch",
+			"description": "Cambia el proyecto activo por id; toma snapshot pre-switch automáticamente (local-only; no afecta backend externo).",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"id": map[string]interface{}{"type": "integer", "minimum": 1},
+				},
+				"required": []string{"id"},
+			},
+		},
+	)
+	result["tools"] = tools
 	if graphFeatureEnabled() {
 		// PR3c: append the memory-graph tools only when the operator
 		// has opted in via NTCLI_FF_GRAPH=1. Built as separate appends
@@ -1108,4 +1259,43 @@ func parseDateArg(raw string) (time.Time, error) {
 		return time.Time{}, fmt.Errorf("expected YYYY-MM-DD or RFC3339, got %q", v)
 	}
 	return t.UTC(), nil
+}
+
+// projectPayload renders an app.Project as a JSON-serialisable map. Used by
+// project_current, project_list, and project_switch responses.
+func projectPayload(p app.Project) map[string]interface{} {
+	return map[string]interface{}{
+		"id":        p.ID,
+		"name":      p.Name,
+		"root_path": p.RootPath,
+	}
+}
+
+// preBackupPathMCP returns the path for the pre-switch MCP backup snapshot.
+// Mirrors project_runner.go's preBackupPath convention.
+func preBackupPathMCP() string {
+	dir := os.Getenv("HOME")
+	if dir == "" {
+		dir = "/tmp"
+	}
+	return dir + "/.nt-cli/backups/pre-switch-mcp.db"
+}
+
+// resourcesListResult returns the resources/list payload. When the service
+// has a live project engine, the active_project resource is advertised so
+// OpenCode sidebar can read current project context without a tool call.
+func resourcesListResult(svc *app.Service) map[string]interface{} {
+	if svc.ProjectEng == nil {
+		return map[string]interface{}{"resources": []interface{}{}}
+	}
+	return map[string]interface{}{
+		"resources": []map[string]interface{}{
+			{
+				"uri":         "nt-cli://project/active",
+				"name":        "Active Project",
+				"description": "The currently active nt-cli project context (id, name, root_path).",
+				"mimeType":    "application/json",
+			},
+		},
+	}
 }

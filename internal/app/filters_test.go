@@ -35,6 +35,16 @@ func (f *filterFakeStore) Context(n int, scope string) ([]MemoryItem, error) {
 	return f.contextResult, nil
 }
 
+// ContextFiltered is the project-scoped extension stub.
+func (f *filterFakeStore) ContextFiltered(opts ContextOptions) ([]MemoryItem, error) {
+	return f.Context(opts.N, opts.Scope)
+}
+
+// ListFiltered is the project-scoped extension stub.
+func (f *filterFakeStore) ListFiltered(opts ListOptions) ([]MemoryItem, error) {
+	return nil, nil
+}
+
 // TestRecallWithOptions_Validation rejects empty query before touching the
 // store, mirroring Recall()'s contract.
 func TestRecallWithOptions_Validation(t *testing.T) {
