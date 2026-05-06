@@ -34,10 +34,12 @@ without mutating state.
 
 // Response (tool text, JSON)
 {
-  "status":     "known" | "new" | "none",
+  "status":     "known" | "new" | "none" | "ambiguous",
   "candidate":  "my-project",       // name of matched or proposed project
   "confidence": "high" | "low",
-  "reason":     "fingerprint matched existing project"
+  "reason":     "fingerprint matched existing project",
+  // Only present when status == "ambiguous":
+  "candidates": [{ "id": 1, "name": "default", "root_path": "" }, ...]
 }
 ```
 
@@ -84,7 +86,7 @@ Returns an array of all registered projects.
 { "name": "project_list", "arguments": {} }
 
 // Response (tool text, JSON array)
-[{ "id": 1, "name": "default", "root_path": "" }, ...]
+[{ "id": 1, "name": "default", "root_path": "", "active": true }, ...]
 ```
 
 ---
@@ -119,6 +121,16 @@ tool call.
 }
 ```
 
+Fetch the resource via `resources/read`:
+
+```jsonc
+// Request
+{ "uri": "nt-cli://project/active" }
+
+// Response (contents[0].text, JSON)
+{ "id": 1, "name": "default", "root_path": "" }
+```
+
 ---
 
 ## Recommended Sidebar Flow
@@ -129,13 +141,14 @@ tool call.
 3. If status == "known" but different project → ask user → call project_switch(id)
 4. If status == "new" → ask user to name project → call project_confirm(candidate)
 5. If status == "none" → no git repo; leave active project unchanged
+6. If status == "ambiguous" → present candidates[] to user → call project_switch(id) on selection
 ```
 
 ---
 
 ## Auto-Backup Policy
 
-(Implemented in Phase 4 — `internal/app/backup.go`)
+(Implemented in `internal/app/scheduler.go`)
 
 | Trigger | Backup path |
 |---------|-------------|
