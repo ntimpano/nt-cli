@@ -10,8 +10,10 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"time"
@@ -64,4 +66,44 @@ func sessionHasSummary(sess SessionStore, clean string) (bool, error) {
 		}
 	}
 	return false, nil
+}
+
+// writeDoctorJSON encodes a DoctorReport as the wire-shape consumed by
+// `nt-cli doctor --json`. We render explicitly (rather than tagging the
+// struct) so the JSON keys stay snake_case while the Go fields keep
+// idiomatic CamelCase — and so future struct additions don't leak into
+// the public JSON surface unintentionally.
+//
+// The autopilot block is grouped under `autopilot.*` so JSON consumers
+// can reach for `.autopilot.session_close_rate` directly per the spec
+// scenario "Doctor surfaces autopilot rate".
+func writeDoctorJSON(w io.Writer, r DoctorReport) error {
+	payload := map[string]interface{}{
+		"schema_version":      r.SchemaVersion,
+		"fts_healthy":         r.FTSHealthy,
+		"integrity_ok":        r.IntegrityOK,
+		"integrity_messages":  ensureStringSlice(r.IntegrityMessages),
+		"memory_items_count":  r.MemoryItemsCount,
+		"sessions_count":      r.SessionsCount,
+		"summary":             r.Summary,
+		"autopilot": map[string]interface{}{
+			"session_close_rate": r.Autopilot.SessionCloseRate,
+			"threshold":          r.Autopilot.Threshold,
+		},
+	}
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(payload); err != nil {
+		return fmt.Errorf("encode doctor json: %w", err)
+	}
+	return nil
+}
+
+// ensureStringSlice turns nil into [] so JSON consumers see an array,
+// not null — same nil-coercion pattern as actionableRecallPayload.
+func ensureStringSlice(in []string) []string {
+	if in == nil {
+		return []string{}
+	}
+	return in
 }

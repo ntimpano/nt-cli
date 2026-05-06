@@ -1128,6 +1128,15 @@ func (s *SQLiteStore) Doctor() (app.DoctorReport, error) {
 	_ = s.db.QueryRow("SELECT count(*) FROM memory_items").Scan(&report.MemoryItemsCount)
 	_ = s.db.QueryRow("SELECT count(*) FROM sessions").Scan(&report.SessionsCount)
 
+	// 4b. Autopilot rate (Phase 6 / workflow-autopilot).
+	// Threshold is hardcoded at 0.9 per spec — operators don't tune it
+	// per-store; it's a project-wide SLO. The rate counts distinct
+	// session ids that had a `start` event in the rolling 14d window
+	// (denominator) and the subset of those that ALSO had a non-empty
+	// `summary` event (numerator). Empty store → 0.0 rate (not NaN).
+	report.Autopilot.Threshold = 0.9
+	report.Autopilot.SessionCloseRate = computeSessionCloseRate(s)
+
 	// 5. Render a single-line summary that names every axis. Order is
 	// stable so tests + screen readers can rely on it.
 	integrity := "ok"
@@ -1144,4 +1153,42 @@ func (s *SQLiteStore) Doctor() (app.DoctorReport, error) {
 		report.MemoryItemsCount, report.SessionsCount,
 	)
 	return report, nil
+}
+
+// computeSessionCloseRate returns the share of sessions started in the
+// rolling 14-day window that also recorded a non-empty summary event.
+// On any SQL error or empty window, returns 0.0 — Doctor stays
+// read-only and best-effort, mirroring the row-count behaviour above.
+func computeSessionCloseRate(s *SQLiteStore) float64 {
+	cutoff := time.Now().UTC().Add(-14 * 24 * time.Hour).Format(time.RFC3339)
+	// Started: count of distinct session_ids whose earliest 'start'
+	// event falls inside the window.
+	var started int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(DISTINCT session_id)
+		   FROM sessions
+		  WHERE kind='start' AND created_at >= ?`,
+		cutoff,
+	).Scan(&started); err != nil || started == 0 {
+		return 0.0
+	}
+	// Closed: of those started-in-window sessions, how many ALSO have
+	// a non-empty summary row anywhere in their history. Subquery is
+	// the started set; outer join filters to ids with a summary.
+	var closed int
+	if err := s.db.QueryRow(
+		`SELECT COUNT(DISTINCT s.session_id)
+		   FROM sessions s
+		  WHERE s.kind='summary'
+		    AND COALESCE(s.summary, '') <> ''
+		    AND s.session_id IN (
+		        SELECT DISTINCT session_id
+		          FROM sessions
+		         WHERE kind='start' AND created_at >= ?
+		    )`,
+		cutoff,
+	).Scan(&closed); err != nil {
+		return 0.0
+	}
+	return float64(closed) / float64(started)
 }
