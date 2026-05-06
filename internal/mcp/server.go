@@ -71,6 +71,13 @@ type localRecallArgs struct {
 	Type  string `json:"type,omitempty"`
 	Since string `json:"since,omitempty"`
 	Until string `json:"until,omitempty"`
+	// PR4b: opt-in to surface rows that have been superseded by another
+	// row. Only meaningful when NTCLI_FF_GRAPH=1; the service layer
+	// routes to RecallGraphAware in that case and honors the flag.
+	// With FF off the field is parsed but ignored — keeping the field
+	// present in the args struct lets newer clients call the tool the
+	// same way regardless of server-side flag state.
+	IncludeSuperseded bool `json:"include_superseded,omitempty"`
 }
 
 type localContextArgs struct {
@@ -395,15 +402,21 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				hasFilter := strings.TrimSpace(args.Type) != "" ||
 					strings.TrimSpace(args.Since) != "" ||
 					strings.TrimSpace(args.Until) != ""
+				// PR4b: when NTCLI_FF_GRAPH=1 OR include_superseded was
+				// passed, route through RecallWithOptions so the service
+				// layer can dispatch to RecallGraphAware. With the flag
+				// OFF and no opts, behavior is byte-identical to PR2b.
+				useOpts := hasFilter || graphFeatureEnabled() || args.IncludeSuperseded
 				var (
 					items []app.MemoryItem
 					err   error
 				)
-				if hasFilter {
+				if useOpts {
 					opts := app.RecallOptions{
-						Query: args.Query,
-						Type:  args.Type,
-						Limit: args.Limit,
+						Query:             args.Query,
+						Type:              args.Type,
+						Limit:             args.Limit,
+						IncludeSuperseded: args.IncludeSuperseded,
 					}
 					if args.Since != "" {
 						t, perr := parseDateArg(args.Since)
@@ -942,6 +955,23 @@ func toolsListResult() map[string]interface{} {
 		// to keep the legacy literal block byte-identical and easy to
 		// diff against earlier milestones.
 		tools, _ := result["tools"].([]map[string]interface{})
+		// PR4b: opt-in `include_superseded` arg on local_recall when
+		// the graph FF is on. Mutates the descriptor in place so the
+		// FF-off literal stays byte-identical for legacy clients.
+		for _, tool := range tools {
+			if tool["name"] != "local_recall" {
+				continue
+			}
+			schema, _ := tool["inputSchema"].(map[string]interface{})
+			props, _ := schema["properties"].(map[string]interface{})
+			if props != nil {
+				props["include_superseded"] = map[string]interface{}{
+					"type":        "boolean",
+					"description": "Incluye filas que han sido superseded por otra (PR4 graph-aware). Solo aplica con NTCLI_FF_GRAPH=1.",
+				}
+			}
+			break
+		}
 		tools = append(tools,
 			map[string]interface{}{
 				"name":        "relate",
