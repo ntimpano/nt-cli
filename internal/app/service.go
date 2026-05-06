@@ -119,6 +119,66 @@ type DoctorReport struct {
 	MemoryItemsCount  int
 	SessionsCount     int
 	Summary           string
+
+	// AutopilotSessionCloseRate is the rolling fraction (∈ [0,1]) of
+	// sessions in the active window that closed cleanly (both a
+	// `summary` row and an `end` row). Spec capability:
+	// workflow-autopilot — "Doctor surfaces autopilot rate".
+	// Pairs with AutopilotThreshold for the doctor surface.
+	AutopilotSessionCloseRate float64
+	// AutopilotThreshold is the spec floor (0.9 = 90% of sessions
+	// must close cleanly over the rolling window). Surfaced verbatim
+	// so doctor JSON consumers can compute pass/fail without hard-
+	// coding the constant on their side.
+	AutopilotThreshold float64
+}
+
+// AutopilotSessionCloseThreshold is the spec-defined floor for the
+// rolling close rate (capability: workflow-autopilot). Exposed as a
+// package constant so callers and tests share one source of truth.
+const AutopilotSessionCloseThreshold = 0.9
+
+// ComputeAutopilotSessionCloseRate returns the fraction of distinct
+// session ids whose lifecycle log contains BOTH a non-empty `summary`
+// row AND an `end` row. Empty input returns 0.
+//
+// This is the pure helper that the doctor surface uses to populate
+// DoctorReport.AutopilotSessionCloseRate. Keeping it pure means tests
+// don't need a live store and the formula is auditable from one place.
+func ComputeAutopilotSessionCloseRate(events []SessionEvent) float64 {
+	if len(events) == 0 {
+		return 0
+	}
+	type sessState struct {
+		hasSummary bool
+		hasEnd     bool
+	}
+	by := map[string]*sessState{}
+	for _, e := range events {
+		st, ok := by[e.SessionID]
+		if !ok {
+			st = &sessState{}
+			by[e.SessionID] = st
+		}
+		switch e.Kind {
+		case "summary":
+			if strings.TrimSpace(e.Summary) != "" {
+				st.hasSummary = true
+			}
+		case "end":
+			st.hasEnd = true
+		}
+	}
+	if len(by) == 0 {
+		return 0
+	}
+	closed := 0
+	for _, st := range by {
+		if st.hasSummary && st.hasEnd {
+			closed++
+		}
+	}
+	return float64(closed) / float64(len(by))
 }
 
 // DoctorStore extends Store with the M3 diagnostic surface. Doctor
@@ -381,6 +441,40 @@ func (s *Service) SessionEnd(id string) error {
 	sess, ok := s.repo.(SessionStore)
 	if !ok {
 		return errors.New("store does not support session operations")
+	}
+	return sess.SessionEnd(clean, time.Now().UTC())
+}
+
+// SessionEndStrict implements the workflow-autopilot spec scenario
+// "Missing summary blocks clean end". When invoked without --force,
+// the session id MUST have at least one `summary` lifecycle row;
+// otherwise the call returns an error containing `summary_required`
+// and the underlying SessionEnd is NOT invoked (no end-row written).
+//
+// Callers that intentionally want to close without a summary call
+// SessionEnd directly (the --force path).
+func (s *Service) SessionEndStrict(id string) error {
+	clean, err := s.validateSessionID(id)
+	if err != nil {
+		return err
+	}
+	sess, ok := s.repo.(SessionStore)
+	if !ok {
+		return errors.New("store does not support session operations")
+	}
+	events, err := sess.SessionEvents(clean)
+	if err != nil {
+		return err
+	}
+	hasSummary := false
+	for _, e := range events {
+		if e.Kind == "summary" && strings.TrimSpace(e.Summary) != "" {
+			hasSummary = true
+			break
+		}
+	}
+	if !hasSummary {
+		return errors.New("summary_required: session has no summary row; call SessionSummary first or use --force")
 	}
 	return sess.SessionEnd(clean, time.Now().UTC())
 }

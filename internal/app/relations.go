@@ -120,3 +120,65 @@ func (s *Service) Neighbors(id int64, dir RelationDirection) ([]MemoryRelation, 
 	}
 	return rs.Neighbors(id, dir)
 }
+
+// SuggestRelations implements the spec scenario "Suggestions returned,
+// none auto-applied" (capability: memory-graph, requirement: Auto-link
+// MUST suggest on save). Given a candidate save request with a non-empty
+// TopicKey, it returns up to 3 candidate edges (`relation_type=related`)
+// pointing at existing rows that share topic / FTS overlap with the
+// content.
+//
+// Contract:
+//   - TopicKey empty            -> no candidates, no Recall call
+//   - Returned MemoryRelation has ID=0 (proposal — not persisted) and
+//     SourceID=0 (caller fills it in after the host save commits)
+//   - The DB is NEVER mutated here; CreateRelation is not called
+//   - Up to 3 suggestions, ranked by Recall order, deduped by TargetID
+//
+// Stronger relation types (supersedes/refines/depends_on/conflicts_with)
+// stay opt-in; auto-link defaults to the safest verb so confirmation is
+// a low-risk Yes/No for the operator.
+func (s *Service) SuggestRelations(req SaveRequest) ([]MemoryRelation, error) {
+	topic := strings.TrimSpace(req.TopicKey)
+	if topic == "" {
+		return nil, nil
+	}
+	// Use TopicKey as the dominant signal; fall back to Content when
+	// the topic is too narrow to score anything (Recall handles the
+	// FTS5 query — empty hits return [] and the slice stays empty).
+	query := topic
+	if c := strings.TrimSpace(req.Content); c != "" {
+		query = topic + " " + c
+	}
+	// Over-fetch slightly so dedupe (when a hit shares an id) does not
+	// starve the 3-cap. 5 keeps the cost bounded under p95.
+	const fetchN = 5
+	hits, err := s.repo.Recall(query, fetchN)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MemoryRelation, 0, 3)
+	seen := map[int64]struct{}{}
+	for _, h := range hits {
+		if h.ID <= 0 {
+			continue
+		}
+		if _, dup := seen[h.ID]; dup {
+			continue
+		}
+		seen[h.ID] = struct{}{}
+		out = append(out, MemoryRelation{
+			// ID=0 marks this as an unsaved proposal. SourceID=0
+			// because the caller's row id is not known yet (the host
+			// save commits AFTER suggestion review per spec).
+			ID:           0,
+			SourceID:     0,
+			TargetID:     h.ID,
+			RelationType: "related",
+		})
+		if len(out) == 3 {
+			break
+		}
+	}
+	return out, nil
+}
