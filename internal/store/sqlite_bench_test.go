@@ -7,6 +7,8 @@ import (
 	"sort"
 	"testing"
 	"time"
+
+	"nt-cli/internal/app"
 )
 
 // seedLargeStore inserts n synthetic rows with predictable token distribution.
@@ -133,5 +135,73 @@ func BenchmarkRecall_FTS(b *testing.B) {
 		if _, err := s.Recall(queries[i%len(queries)], 10); err != nil {
 			b.Fatalf("recall: %v", err)
 		}
+	}
+}
+
+// TestRecallGraphAware_P95Under50ms covers the PR4 scenario "graph-aware
+// recall stays within latency SLO": with 10,000 rows and a sparse but
+// realistic relation graph, p95 of RecallGraphAware MUST stay under
+// the same 50ms budget as the legacy FTS path. The graph join + boost
+// must not regress recall latency.
+//
+// Sample size matches the legacy bench (200 runs) so p95 has the same
+// statistical resolution. NTCLI_SKIP_LATENCY=1 honored for constrained CI.
+func TestRecallGraphAware_P95Under50ms(t *testing.T) {
+	if os.Getenv("NTCLI_SKIP_LATENCY") == "1" {
+		t.Skip("NTCLI_SKIP_LATENCY=1 set")
+	}
+	const (
+		rows      = 10_000
+		runs      = 200
+		limit     = 10
+		relations = 2_000 // ~20% of rows have at least one outbound edge
+	)
+	s := seedLargeStore(t, rows)
+
+	// Seed a sparse relation graph spanning the corpus. We pick the
+	// boostable subset (related, refines, depends_on) so the boost
+	// arithmetic actually fires during recall.
+	relTypes := []string{"related", "refines", "depends_on"}
+	rng := rand.New(rand.NewSource(7))
+	now := time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC)
+	for i := 0; i < relations; i++ {
+		src := int64(1 + rng.Intn(rows))
+		tgt := int64(1 + rng.Intn(rows))
+		if src == tgt {
+			continue
+		}
+		rt := relTypes[rng.Intn(len(relTypes))]
+		if err := s.CreateRelation(src, tgt, rt, now.Add(time.Duration(i)*time.Second)); err != nil {
+			// CreateRelation enforces uniqueness; collisions are
+			// expected at this density and safe to skip.
+			continue
+		}
+	}
+
+	queries := []string{
+		"alpha", "beta gamma", "delta epsilon zeta",
+		"nonexistentterm", "lambda", "mu nu", "xi", "omicron pi",
+		"alpha beta", "kappa",
+	}
+	samples := make([]time.Duration, 0, runs)
+	for i := 0; i < runs; i++ {
+		opts := app.RecallOptions{Query: queries[i%len(queries)], Limit: limit, GraphAware: true}
+		start := time.Now()
+		if _, err := s.RecallGraphAware(opts); err != nil {
+			t.Fatalf("recall graph-aware %q: %v", opts.Query, err)
+		}
+		samples = append(samples, time.Since(start))
+	}
+	sort.Slice(samples, func(i, j int) bool { return samples[i] < samples[j] })
+	p95 := samples[int(float64(len(samples))*0.95)]
+	median := samples[len(samples)/2]
+
+	t.Logf("graph-aware recall latency over %d rows + %d relations × %d runs: median=%s p95=%s",
+		rows, relations, runs, median, p95)
+	if p95 > 50*time.Millisecond {
+		t.Fatalf("graph-aware p95 latency %s exceeds 50ms SLO (median=%s, %d rows)", p95, median, rows)
+	}
+	if !s.UseFTS() {
+		t.Fatalf("expected FTS active for graph-aware latency benchmark; LIKE fallback is not the path under test")
 	}
 }
