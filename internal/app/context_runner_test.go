@@ -74,6 +74,16 @@ func (f *filterMemStore) Context(n int, scope string) ([]app.MemoryItem, error) 
 	return all, nil
 }
 
+// ContextFiltered is the project-scoped extension (PR2b stub — fakes ignore ProjectID).
+func (f *filterMemStore) ContextFiltered(opts app.ContextOptions) ([]app.MemoryItem, error) {
+	return f.Context(opts.N, opts.Scope)
+}
+
+// ListFiltered is the project-scoped extension (PR2b stub — fakes ignore ProjectID).
+func (f *filterMemStore) ListFiltered(opts app.ListOptions) ([]app.MemoryItem, error) {
+	return f.memStore.List(opts.Limit)
+}
+
 // SaveWithMeta lets CLI tests seed metadata fields the runner needs to
 // filter on (type, scope). It implements app.MetadataStore.
 func (f *filterMemStore) SaveWithMeta(req app.SaveRequest) (int64, error) {

@@ -54,6 +54,16 @@ func (g *graphRecallFakeStore) Context(n int, scope string) ([]MemoryItem, error
 	return nil, nil
 }
 
+// ContextFiltered satisfies FilterStore (PR2b) — stub.
+func (g *graphRecallFakeStore) ContextFiltered(opts ContextOptions) ([]MemoryItem, error) {
+	return nil, nil
+}
+
+// ListFiltered satisfies FilterStore (PR2b) — stub.
+func (g *graphRecallFakeStore) ListFiltered(opts ListOptions) ([]MemoryItem, error) {
+	return nil, nil
+}
+
 func (g *graphRecallFakeStore) RecallGraphAware(opts RecallOptions) ([]MemoryItem, error) {
 	g.graphAwareCalls++
 	g.lastGraphOpts = opts

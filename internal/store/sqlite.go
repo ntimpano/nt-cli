@@ -546,11 +546,16 @@ func (s *SQLiteStore) SaveWithMeta(req app.SaveRequest) (int64, error) {
 		}
 	}
 
+	// Stamp project_id when provided (v5+). Zero means unscoped (legacy).
+	var projectIDVal any
+	if req.ProjectID > 0 {
+		projectIDVal = req.ProjectID
+	}
 	res, err := s.db.Exec(
-		`INSERT INTO memory_items(content, created_at, updated_at, title, type, topic_key, scope)
-		 VALUES(?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO memory_items(content, created_at, updated_at, title, type, topic_key, scope, project_id)
+		 VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
 		req.Content, stamp, stamp,
-		req.Title, req.Type, req.TopicKey, req.Scope,
+		req.Title, req.Type, req.TopicKey, req.Scope, projectIDVal,
 	)
 	if err != nil {
 		return 0, err
@@ -711,6 +716,62 @@ func (s *SQLiteStore) Context(n int, scope string) ([]app.MemoryItem, error) {
 	return scanAll(rows)
 }
 
+// ContextFiltered returns the most recent N rows with optional scope and
+// project_id filtering. When opts.AllProjects is true, the project filter
+// is bypassed (--all flag behavior).
+func (s *SQLiteStore) ContextFiltered(opts app.ContextOptions) ([]app.MemoryItem, error) {
+	clauses := []string{}
+	args := []any{}
+	scope := strings.TrimSpace(opts.Scope)
+	if scope != "" {
+		clauses = append(clauses, "COALESCE(scope, '') = ?")
+		args = append(args, scope)
+	}
+	if opts.ProjectID > 0 && !opts.AllProjects {
+		clauses = append(clauses, "project_id = ?")
+		args = append(args, opts.ProjectID)
+	}
+
+	q := `SELECT ` + selectColumns + ` FROM memory_items`
+	if len(clauses) > 0 {
+		q += " WHERE " + strings.Join(clauses, " AND ")
+	}
+	q += " ORDER BY datetime(created_at) DESC, id DESC LIMIT ?"
+	args = append(args, opts.N)
+
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAll(rows)
+}
+
+// ListFiltered returns up to limit rows in created_at DESC order, optionally
+// filtered by project_id. AllProjects bypasses the filter.
+func (s *SQLiteStore) ListFiltered(opts app.ListOptions) ([]app.MemoryItem, error) {
+	clauses := []string{}
+	args := []any{}
+	if opts.ProjectID > 0 && !opts.AllProjects {
+		clauses = append(clauses, "project_id = ?")
+		args = append(args, opts.ProjectID)
+	}
+
+	q := `SELECT ` + selectColumns + ` FROM memory_items`
+	if len(clauses) > 0 {
+		q += " WHERE " + strings.Join(clauses, " AND ")
+	}
+	q += " ORDER BY datetime(created_at) DESC LIMIT ?"
+	args = append(args, opts.Limit)
+
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanAll(rows)
+}
+
 // UseFTS reports whether ranked recall is currently active. It returns
 // false when the FTS5 module was unavailable at Init() OR when an earlier
 // recall failed and the store downgraded itself to LIKE for the rest of
@@ -822,8 +883,8 @@ func (s *SQLiteStore) recallLIKEFiltered(opts app.RecallOptions) ([]app.MemoryIt
 	return scanAll(rows)
 }
 
-// appendMetadataFilters appends type/since/until predicates to the given
-// WHERE clause list. The column references are unqualified so callers
+// appendMetadataFilters appends type/since/until/project predicates to the
+// given WHERE clause list. The column references are unqualified so callers
 // MUST ensure memory_items is the only table where those columns exist
 // in the surrounding query (true for both filtered recall paths).
 func appendMetadataFilters(clauses []string, args []any, opts app.RecallOptions) ([]string, []any) {
@@ -838,6 +899,10 @@ func appendMetadataFilters(clauses []string, args []any, opts app.RecallOptions)
 	if !opts.Until.IsZero() {
 		clauses = append(clauses, "datetime(created_at) <= datetime(?)")
 		args = append(args, opts.Until.UTC().Format(time.RFC3339))
+	}
+	if opts.ProjectID > 0 && !opts.AllProjects {
+		clauses = append(clauses, "project_id = ?")
+		args = append(args, opts.ProjectID)
 	}
 	return clauses, args
 }
