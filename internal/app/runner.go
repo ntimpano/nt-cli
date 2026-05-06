@@ -381,6 +381,9 @@ func RunCLI(svc *Service, args []string, stdout, stderr io.Writer) int {
 	case "parity":
 		return runParity(svc, args, stdout, stderr)
 
+	case "project":
+		return runProject(svc, args[1:], stdout, stderr)
+
 	default:
 		printUsage(stdout)
 		return 1

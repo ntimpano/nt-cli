@@ -50,5 +50,11 @@ func main() {
 		return
 	}
 
+	// Resolve active project at boot and inject into service so all
+	// read/write paths are automatically scoped (tasks 2.4–2.6).
+	if activeProj, err := repo.GetActive(); err == nil {
+		svc.SetActiveProject(activeProj.ID)
+	}
+
 	os.Exit(app.RunCLI(svc, os.Args[1:], os.Stdout, os.Stderr))
 }

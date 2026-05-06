@@ -276,6 +276,10 @@ var ErrNotFound = errors.New("note not found")
 type Service struct {
 	repo            Store
 	activeProjectID int64 // resolved at boot, 0 = no project scoping
+	// ProjectEngine handles project detection/switch/list/current.
+	// Wired at boot when the store implements ProjectStore.
+	// May be nil when running against legacy test fakes.
+	ProjectEng ProjectEngine
 }
 
 // SetActiveProject injects the active project id into the service so all
@@ -304,7 +308,14 @@ type MemoryItem struct {
 }
 
 func NewService(repo Store) *Service {
-	return &Service{repo: repo}
+	svc := &Service{repo: repo}
+	// Auto-wire the project engine when the store implements ProjectStore.
+	// This covers both production (SQLiteStore) and test doubles that embed
+	// ProjectStore-like capabilities.
+	if ps, ok := repo.(ProjectStore); ok {
+		svc.ProjectEng = newProjectEngine(ps, realGitResolver)
+	}
+	return svc
 }
 
 func (s *Service) Init() error {
