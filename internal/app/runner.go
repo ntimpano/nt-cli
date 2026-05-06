@@ -3,6 +3,7 @@ package app
 import (
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -378,7 +379,7 @@ func RunCLI(svc *Service, args []string, stdout, stderr io.Writer) int {
 		return 0
 
 	case "parity":
-		return runParity(args, stdout, stderr)
+		return runParity(svc, args, stdout, stderr)
 
 	default:
 		printUsage(stdout)
@@ -531,21 +532,27 @@ func parseDateFlag(raw string) (time.Time, error) {
 	return t.UTC(), nil
 }
 
-// runParity dispatches `nt-cli parity <subcommand>`. Currently the only
-// subcommand is `scorecard`, which computes the parity verdict from
-// dimension signals supplied as flags and prints the canonical JSON
-// contract on stdout. The flag-based interface keeps replays
-// deterministic so the runbook can pin a known verdict.
-func runParity(args []string, stdout, stderr io.Writer) int {
+// runParity dispatches `nt-cli parity <subcommand>`. Subcommands:
+//   - scorecard:  computes the parity verdict from supplied dimension
+//     signals and prints the canonical JSON contract.
+//   - continuity: replays the knowledge-continuity fixture against the
+//     live store, writes baseline.json, and prints the same JSON.
+//
+// Each subcommand keeps its own flag parser so unknown flags fail
+// loudly (a silent skip would let a typo zero a dimension and quietly
+// skew the scorecard verdict).
+func runParity(svc *Service, args []string, stdout, stderr io.Writer) int {
 	if len(args) < 2 {
-		fmt.Fprintln(stderr, "usage: nt-cli parity <scorecard>")
+		fmt.Fprintln(stderr, "usage: nt-cli parity <scorecard|continuity>")
 		return 1
 	}
 	switch args[1] {
 	case "scorecard":
 		return runParityScorecard(args[2:], stdout, stderr)
+	case "continuity":
+		return runParityContinuity(svc, args[2:], stdout, stderr)
 	default:
-		fmt.Fprintf(stderr, "unknown parity subcommand %q (valid: scorecard)\n", args[1])
+		fmt.Fprintf(stderr, "unknown parity subcommand %q (valid: scorecard, continuity)\n", args[1])
 		return 1
 	}
 }
@@ -619,5 +626,43 @@ func runParityScorecard(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintln(stdout, string(b))
+	return 0
+}
+
+// runParityContinuity executes `nt-cli parity continuity --fixture=<path> --out=<path>`.
+// Replays the fixture suite through the live store, writes baseline.json
+// to --out, and prints the same baseline as JSON on stdout so the
+// runbook can pipe it into jq or diff against a previous baseline.
+//
+// Both flags are required: a missing fixture should fail loudly rather
+// than silently producing a zero-row baseline that would skew the
+// scorecard's KnowledgeContinuity dimension to zero.
+func runParityContinuity(svc *Service, args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("parity continuity", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fixture := fs.String("fixture", "", "path to fixture queries.json (required)")
+	out := fs.String("out", "", "path to write baseline.json (required)")
+	if err := fs.Parse(args); err != nil {
+		return 1
+	}
+	if *fixture == "" {
+		fmt.Fprintln(stderr, "parity continuity: --fixture is required")
+		return 1
+	}
+	if *out == "" {
+		fmt.Fprintln(stderr, "parity continuity: --out is required")
+		return 1
+	}
+	baseline, err := svc.RunContinuityHarness(*fixture, *out)
+	if err != nil {
+		fmt.Fprintf(stderr, "parity continuity: %v\n", err)
+		return 1
+	}
+	body, err := json.Marshal(baseline)
+	if err != nil {
+		fmt.Fprintf(stderr, "encode baseline: %v\n", err)
+		return 1
+	}
+	fmt.Fprintln(stdout, string(body))
 	return 0
 }
