@@ -501,6 +501,17 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				}
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("restored from %s", strings.TrimSpace(args.Path)))}, true
 
+			case "local_doctor":
+				report, err := svc.Doctor()
+				if err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				out := report.Summary
+				for _, msg := range report.IntegrityMessages {
+					out += "\n  integrity: " + msg
+				}
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(out)}, true
+
 			default:
 				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "tool not found"}}, true
 			}
@@ -782,6 +793,14 @@ func toolsListResult() map[string]interface{} {
 						"path": map[string]interface{}{"type": "string"},
 					},
 					"required": []string{"path"},
+				},
+			},
+			{
+				"name":        "local_doctor",
+				"description": "Diagnóstico read-only del store local SQLite (local-only; no afecta Engram). Reporta schema_version, salud de FTS5, integrity_check y row counts en una línea de resumen.",
+				"inputSchema": map[string]interface{}{
+					"type":       "object",
+					"properties": map[string]interface{}{},
 				},
 			},
 		},

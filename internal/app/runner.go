@@ -354,6 +354,26 @@ func RunCLI(svc *Service, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "restored from %s\n", args[1])
 		return 0
 
+	case "doctor":
+		// Doctor takes no arguments. Reject extras so typos like
+		// `nt-cli doctor --json` surface instead of silently ignoring.
+		if len(args) > 1 {
+			fmt.Fprintln(stderr, "usage: nt-cli doctor")
+			return 1
+		}
+		report, err := svc.Doctor()
+		if err != nil {
+			fmt.Fprintf(stderr, "doctor failed: %v\n", err)
+			return 1
+		}
+		fmt.Fprintln(stdout, report.Summary)
+		// Surface non-ok integrity messages verbatim so users can act
+		// on them. Healthy stores produce zero extra lines.
+		for _, msg := range report.IntegrityMessages {
+			fmt.Fprintf(stdout, "  integrity: %s\n", msg)
+		}
+		return 0
+
 	default:
 		printUsage(stdout)
 		return 1
@@ -483,6 +503,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  nt-cli import [--dry-run] <file.json>")
 	fmt.Fprintln(w, "  nt-cli backup <path>")
 	fmt.Fprintln(w, "  nt-cli restore <path>")
+	fmt.Fprintln(w, "  nt-cli doctor")
 	fmt.Fprintln(w, "  nt-cli mcp")
 }
 

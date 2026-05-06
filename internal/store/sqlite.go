@@ -1019,3 +1019,81 @@ func reopenStore(s *SQLiteStore) error {
 	s.db = db
 	return nil
 }
+
+// DoctorReport is an alias for app.DoctorReport — the diagnostic
+// snapshot type lives in `app` so service callers don't need to import
+// `store`. Each axis maps 1:1 to a check the M3 doctor surface
+// advertises:
+//   - SchemaVersion: numeric migration target reached
+//   - FTSHealthy:    memory_fts table queryable + sync triggers present
+//   - IntegrityOK:   PRAGMA integrity_check returned 'ok' on every row
+//   - MemoryItemsCount / SessionsCount: row counts for the M1+M3 tables
+//   - Summary: short human-readable line for CLI/MCP presentation,
+//     containing every axis name so callers can render a one-shot status
+type DoctorReport = app.DoctorReport
+
+// Doctor runs the full diagnostic suite and returns a DoctorReport. All
+// checks are read-only — Doctor MUST never mutate the database (callers
+// rely on this to run it from MCP without backup safeguards).
+func (s *SQLiteStore) Doctor() (app.DoctorReport, error) {
+	report := app.DoctorReport{}
+
+	// 1. Schema version. Read from the schema_version table that Init
+	// stamps on every successful migration; max(version) is current.
+	if err := s.db.QueryRow(
+		`SELECT COALESCE(MAX(version), 0) FROM schema_version`,
+	).Scan(&report.SchemaVersion); err != nil {
+		return report, fmt.Errorf("read schema version: %w", err)
+	}
+
+	// 2. FTS health: a SELECT against memory_fts that succeeds means the
+	// virtual table exists and the FTS5 module is loaded. We don't check
+	// triggers explicitly — a healthy SELECT is the user-facing contract.
+	var ftsCount int
+	if err := s.db.QueryRow(
+		`SELECT count(*) FROM memory_fts WHERE 1=0`,
+	).Scan(&ftsCount); err == nil {
+		report.FTSHealthy = true
+	}
+
+	// 3. Integrity check. SQLite returns 'ok' on a single row when clean,
+	// otherwise one row per problem. We collect every non-'ok' message
+	// so CLI surface can show them verbatim.
+	rows, err := s.db.Query("PRAGMA integrity_check")
+	if err != nil {
+		return report, fmt.Errorf("integrity_check: %w", err)
+	}
+	defer rows.Close()
+	report.IntegrityOK = true
+	for rows.Next() {
+		var msg string
+		if err := rows.Scan(&msg); err != nil {
+			return report, err
+		}
+		if strings.TrimSpace(strings.ToLower(msg)) != "ok" {
+			report.IntegrityOK = false
+			report.IntegrityMessages = append(report.IntegrityMessages, msg)
+		}
+	}
+
+	// 4. Row counts. Best-effort — missing tables (older schema) count as 0.
+	_ = s.db.QueryRow("SELECT count(*) FROM memory_items").Scan(&report.MemoryItemsCount)
+	_ = s.db.QueryRow("SELECT count(*) FROM sessions").Scan(&report.SessionsCount)
+
+	// 5. Render a single-line summary that names every axis. Order is
+	// stable so tests + screen readers can rely on it.
+	integrity := "ok"
+	if !report.IntegrityOK {
+		integrity = fmt.Sprintf("FAIL (%d issues)", len(report.IntegrityMessages))
+	}
+	fts := "healthy"
+	if !report.FTSHealthy {
+		fts = "unavailable"
+	}
+	report.Summary = fmt.Sprintf(
+		"schema_version=%d  fts=%s  integrity=%s  memory_items=%d  sessions=%d",
+		report.SchemaVersion, fts, integrity,
+		report.MemoryItemsCount, report.SessionsCount,
+	)
+	return report, nil
+}

@@ -87,6 +87,27 @@ type BackupStore interface {
 	Restore(src string) error
 }
 
+// DoctorReport mirrors the store-layer diagnostic snapshot. Re-declared
+// at the service layer (instead of re-exporting the store type) so the
+// `app` package stays independent of `store` — keeping the same
+// dependency direction the rest of the package follows.
+type DoctorReport struct {
+	SchemaVersion     int
+	FTSHealthy        bool
+	IntegrityOK       bool
+	IntegrityMessages []string
+	MemoryItemsCount  int
+	SessionsCount     int
+	Summary           string
+}
+
+// DoctorStore extends Store with the M3 diagnostic surface. Doctor
+// MUST be read-only — callers (CLI, MCP) rely on this guarantee to run
+// it without backup safeguards.
+type DoctorStore interface {
+	Doctor() (DoctorReport, error)
+}
+
 // FilterStore extends Store with the structured read paths introduced by
 // the M2 milestone (recall with metadata filters + recent-context view).
 // Same defensive pattern as MetadataStore: callers MUST type-assert and
@@ -429,6 +450,17 @@ func (s *Service) Restore(src string) error {
 		return errors.New("store does not support restore operations")
 	}
 	return bs.Restore(clean)
+}
+
+// Doctor returns the read-only diagnostic snapshot from the underlying
+// store. Returns a capability error if the Store doesn't implement
+// DoctorStore (defensive type-assert mirrors session/import/backup).
+func (s *Service) Doctor() (DoctorReport, error) {
+	ds, ok := s.repo.(DoctorStore)
+	if !ok {
+		return DoctorReport{}, errors.New("store does not support doctor diagnostics")
+	}
+	return ds.Doctor()
 }
 
 func DefaultDBPath() (string, error) {
