@@ -14,6 +14,7 @@
 | Check if you can advance to the next phase | [Readiness gates (G1–G6)](#readiness-gates-g1g6) |
 | Roll back right now | [Rollback runbook](#rollback-runbook) |
 | Turn on debug logs for an MCP failure | [Observability: `NTCLI_MCP_DEBUG`](#observability-ntcli_mcp_debug) |
+| Roll out graph / actionable / autopilot | [Singularity rollout](#singularity-rollout-graph--actionable--autopilot) |
 | Confirm the offramp is done | [Exit criteria checklist](#exit-criteria-checklist) |
 
 ## Phases
@@ -278,6 +279,57 @@ ntcli-mcp tool=local_recall id=44 status=error reason="empty query"
 
 If `NTCLI_MCP_DEBUG` is unset or empty, the server stays quiet on stderr and
 behaves identically to the default profile.
+
+## Singularity rollout (graph + actionable + autopilot)
+
+The `ntcli-singularity` change adds three opt-in capabilities on top of the
+parity baseline. Each ships behind its own feature flag so you can roll the
+profile forward one capability at a time and roll back without touching data.
+
+### Feature flags
+
+| Flag | Default | Enables | Notes |
+|------|---------|---------|-------|
+| `NTCLI_FF_GRAPH` | off | Graph relations store + graph-aware recall ranking | Pure additive on read paths; off = legacy FTS-only ranking. |
+| `NTCLI_FF_ACTIONABLE` | off | Actionable recall (re-ranks results for current intent) | Requires `NTCLI_FF_GRAPH` to materially help; safe alone. |
+| `NTCLI_FF_AUTOPILOT` | off | `SessionEnd` summary guard (refuses end without a summary row) | CLI maps refusal to exit code 2; `--force` bypasses. |
+| `NTCLI_AUTOPILOT_DEBUG` | off | Stderr observer for the FF_AUTOPILOT guard | Independent of `NTCLI_FF_AUTOPILOT`; setting only this still emits nothing because the guard never fires. |
+| `NTCLI_PERF_TRIALS` | `3` | Number of trials the recall p95 SLO test takes the best of | Caps at 10. Lower for fast local runs, raise on noisy CI. |
+
+All flags follow the same opt-in rule: empty / unset / `0` is OFF, `1` is ON.
+
+### Recommended ordering
+
+1. **Shadow + parity green** (PR1–PR4 already shipped): no flags set.
+2. Flip `NTCLI_FF_GRAPH=1` on a pilot profile. Watch p95 (still ≤50ms) and
+   the parity scorecard.
+3. Flip `NTCLI_FF_ACTIONABLE=1` once graph has soaked ≥7 days clean.
+4. Flip `NTCLI_FF_AUTOPILOT=1` last — it changes lifecycle write semantics
+   (refuses ends without summaries). Pair it with `NTCLI_AUTOPILOT_DEBUG=1`
+   in pilots so you can see every guard fire.
+
+To roll back any one capability, unset its flag and reconnect the MCP host.
+No data migration is involved — the graph store and the lifecycle log keep
+their rows; the read paths simply stop consulting them.
+
+### Autopilot debug stream
+
+When `NTCLI_FF_AUTOPILOT=1` AND `NTCLI_AUTOPILOT_DEBUG=1` are both set, every
+`SessionEnd` decision is logged to stderr in a single grep-friendly line:
+
+```
+ntcli-autopilot event=session_end status=blocked session=s-42 reason=summary_required
+ntcli-autopilot event=session_end status=ok session=s-99
+```
+
+- `status=blocked` → guard fired; CLI exits 2; operator must record a
+  summary or call `nt-cli session end --force`.
+- `status=ok` → end-row was written normally (a summary was already on file).
+- Session ids containing whitespace are quoted so the line stays parseable.
+
+If only `NTCLI_AUTOPILOT_DEBUG=1` is set without the FF, no lines are
+emitted because the guard does not run. This is intentional — the debug
+stream observes the guard, it does not enable it.
 
 ## Rollback runbook
 
