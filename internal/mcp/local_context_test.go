@@ -77,6 +77,16 @@ func (f *filterMemStore) Context(n int, scope string) ([]app.MemoryItem, error) 
 	return all, nil
 }
 
+// ContextFiltered satisfies FilterStore (PR2b) — stub.
+func (f *filterMemStore) ContextFiltered(opts app.ContextOptions) ([]app.MemoryItem, error) {
+	return f.Context(opts.N, opts.Scope)
+}
+
+// ListFiltered satisfies FilterStore (PR2b) — stub.
+func (f *filterMemStore) ListFiltered(opts app.ListOptions) ([]app.MemoryItem, error) {
+	return nil, nil
+}
+
 // TestToolsList_IncludesLocalContext proves the new context view is
 // advertised via tools/list (spec scenario "Context returns recent
 // items" — the surface MUST be reachable through MCP).
