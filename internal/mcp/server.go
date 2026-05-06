@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"nt-cli/internal/app"
+	"nt-cli/internal/parity"
 	"nt-cli/internal/store"
 )
 
@@ -106,6 +107,32 @@ type localImportArgs struct {
 
 type localPathArgs struct {
 	Path string `json:"path"`
+}
+
+// parityScorecardArgs maps the JSON-RPC tool input to a parity.ScorecardSignals
+// value. JSON keys use snake_case to match nt-cli's MCP convention.
+type parityScorecardArgs struct {
+	CoreOps                int `json:"core_ops"`
+	MetadataRetrieval      int `json:"metadata_retrieval"`
+	SessionWorkflow        int `json:"session_workflow"`
+	ImportExportBackup     int `json:"import_export_backup"`
+	ReliabilityOperability int `json:"reliability_operability"`
+	KnowledgeContinuity    int `json:"knowledge_continuity"`
+	UXAPIContract          int `json:"ux_api_contract"`
+	SoakDays               int `json:"soak_days"`
+}
+
+func (a parityScorecardArgs) toSignals() parity.ScorecardSignals {
+	return parity.ScorecardSignals{
+		CoreOps:                a.CoreOps,
+		MetadataRetrieval:      a.MetadataRetrieval,
+		SessionWorkflow:        a.SessionWorkflow,
+		ImportExportBackup:     a.ImportExportBackup,
+		ReliabilityOperability: a.ReliabilityOperability,
+		KnowledgeContinuity:    a.KnowledgeContinuity,
+		UXAPIContract:          a.UXAPIContract,
+		SoakDays:               a.SoakDays,
+	}
 }
 
 type initializeParams struct {
@@ -512,6 +539,20 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				}
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(out)}, true
 
+			case "parity_scorecard":
+				var args parityScorecardArgs
+				if len(params.Arguments) > 0 {
+					if err := json.Unmarshal(params.Arguments, &args); err != nil {
+						return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("invalid arguments: " + err.Error())}, true
+					}
+				}
+				v := parity.ComputeScorecard(args.toSignals())
+				b, err := json.Marshal(v)
+				if err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("encode verdict: " + err.Error())}, true
+				}
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
+
 			default:
 				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "tool not found"}}, true
 			}
@@ -801,6 +842,23 @@ func toolsListResult() map[string]interface{} {
 				"inputSchema": map[string]interface{}{
 					"type":       "object",
 					"properties": map[string]interface{}{},
+				},
+			},
+			{
+				"name":        "parity_scorecard",
+				"description": "Computes the parity scorecard verdict from supplied dimension signals (0..100) and soak_days. Returns {total, dimensions[], version, verdict, hold_reason} per the parity-scorecard contract. The scorecard verdict supersedes binary G1/G2; G3–G6 remain independent preconditions.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"core_ops":                map[string]interface{}{"type": "integer"},
+						"metadata_retrieval":      map[string]interface{}{"type": "integer"},
+						"session_workflow":        map[string]interface{}{"type": "integer"},
+						"import_export_backup":    map[string]interface{}{"type": "integer"},
+						"reliability_operability": map[string]interface{}{"type": "integer"},
+						"knowledge_continuity":    map[string]interface{}{"type": "integer"},
+						"ux_api_contract":         map[string]interface{}{"type": "integer"},
+						"soak_days":               map[string]interface{}{"type": "integer"},
+					},
 				},
 			},
 		},
