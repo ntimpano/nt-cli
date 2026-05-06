@@ -66,6 +66,56 @@ If any required gate is not satisfied, **hold at the current phase** and name
 the failing gate in your hold notice (e.g. "Holding at shadow: G1 failing —
 parity_test.go reports missing tool `local_get`").
 
+## Parity scorecard
+
+The parity scorecard quantifies "100% practical parity" as a weighted score.
+The scorecard **verdict** supersedes binary G1/G2 when both are present;
+**G3–G6 remain independent preconditions** that must still be green.
+
+### Dimensions and weights
+
+The scorecard is computed from 7 hardcoded dimensions whose weights sum to
+100. The 3 dimensions marked **critical** force overall verdict=fail when
+red, regardless of total.
+
+| Dimension | Weight | Critical? |
+|-----------|-------:|-----------|
+| core-ops                | 25 | ✅ |
+| metadata-retrieval      | 15 |   |
+| session-workflow        | 10 |   |
+| import-export-backup    | 15 |   |
+| reliability-operability | 15 | ✅ |
+| knowledge-continuity    | 10 | ✅ |
+| ux-api-contract         | 10 |   |
+
+### Pass / hold / fail
+
+| Verdict | Conditions |
+|---------|-----------|
+| `pass` | total ≥ **95** AND all critical dimensions green AND `soak_days` ≥ **14** |
+| `fail` | any critical dimension red — even when total ≥ 95 |
+| `hold` | otherwise (e.g. `soak_window` under 14 days, or total below 95 with criticals green) |
+
+A hold notice on `soak_window` reports `soak_days` < 14. A hold notice for
+low total names the lowest-scoring critical dimension so operators know
+where to focus remediation. A fail verdict on critical-red names the
+failing critical dimension(s).
+
+### Surfacing the verdict
+
+```bash
+# CLI — flags map 1:1 to the dimensions above; values are 0..100.
+nt-cli parity scorecard \
+  --core-ops=98 --metadata-retrieval=95 --session-workflow=95 \
+  --import-export-backup=96 --reliability-operability=97 \
+  --knowledge-continuity=95 --ux-api-contract=95 --soak-days=14
+```
+
+The MCP tool `parity_scorecard` accepts the same signals as JSON-RPC
+arguments and returns the canonical contract `{total, dimensions[],
+version, verdict, hold_reason}`. The `version` field stamps the contract
+so consumers can pin a release.
+
 ### G2 operation parity sample (N≥10)
 
 Run each operation at least once on both the CLI and the MCP surface, mixing
