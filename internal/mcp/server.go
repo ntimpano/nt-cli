@@ -55,12 +55,26 @@ type toolsCallParams struct {
 }
 
 type localSaveArgs struct {
-	Content string `json:"content"`
+	Content  string `json:"content"`
+	Title    string `json:"title,omitempty"`
+	Type     string `json:"type,omitempty"`
+	TopicKey string `json:"topic_key,omitempty"`
+	Scope    string `json:"scope,omitempty"`
 }
 
 type localRecallArgs struct {
 	Query string `json:"query"`
 	Limit int    `json:"limit"`
+	// PR2b: optional metadata + date-range filters. Empty/zero values
+	// preserve legacy unfiltered behavior so older clients are unaffected.
+	Type  string `json:"type,omitempty"`
+	Since string `json:"since,omitempty"`
+	Until string `json:"until,omitempty"`
+}
+
+type localContextArgs struct {
+	N     int    `json:"n"`
+	Scope string `json:"scope,omitempty"`
 }
 
 type localListArgs struct {
@@ -272,9 +286,28 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				if err := json.Unmarshal(params.Arguments, &args); err != nil {
 					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
 				}
-				id, err := svc.Save(args.Content)
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				// Route to SaveWithMeta only when the caller provided at
+				// least one metadata field. This preserves the legacy
+				// JSON-RPC contract for older clients and keeps test fakes
+				// that don't implement MetadataStore working.
+				hasMeta := args.Title != "" || args.Type != "" || args.TopicKey != "" || args.Scope != ""
+				var (
+					id    int64
+					saveErr error
+				)
+				if hasMeta {
+					id, saveErr = svc.SaveWithMeta(app.SaveRequest{
+						Content:  args.Content,
+						Title:    args.Title,
+						Type:     args.Type,
+						TopicKey: args.TopicKey,
+						Scope:    args.Scope,
+					})
+				} else {
+					id, saveErr = svc.Save(args.Content)
+				}
+				if saveErr != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(saveErr.Error())}, true
 				}
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("saved #%d", id))}, true
 
@@ -283,12 +316,53 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				if err := json.Unmarshal(params.Arguments, &args); err != nil {
 					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
 				}
-				items, err := svc.Recall(args.Query, args.Limit)
+				hasFilter := strings.TrimSpace(args.Type) != "" ||
+					strings.TrimSpace(args.Since) != "" ||
+					strings.TrimSpace(args.Until) != ""
+				var (
+					items []app.MemoryItem
+					err   error
+				)
+				if hasFilter {
+					opts := app.RecallOptions{
+						Query: args.Query,
+						Type:  args.Type,
+						Limit: args.Limit,
+					}
+					if args.Since != "" {
+						t, perr := parseDateArg(args.Since)
+						if perr != nil {
+							return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("invalid since: " + perr.Error())}, true
+						}
+						opts.Since = t
+					}
+					if args.Until != "" {
+						t, perr := parseDateArg(args.Until)
+						if perr != nil {
+							return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("invalid until: " + perr.Error())}, true
+						}
+						opts.Until = t
+					}
+					items, err = svc.RecallWithOptions(opts)
+				} else {
+					items, err = svc.Recall(args.Query, args.Limit)
+				}
 				if err != nil {
 					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
 				}
-				b, _ := json.Marshal(items)
+				b, _ := json.Marshal(memoryItemsPayload(items))
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
+
+			case "local_context":
+				var args localContextArgs
+				_ = json.Unmarshal(params.Arguments, &args)
+				items, err := svc.Context(args.N, args.Scope)
+				if err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+				}
+				b, _ := json.Marshal(memoryItemsPayload(items))
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
+
 
 			case "local_list":
 				var args localListArgs
@@ -476,21 +550,39 @@ func toolsListResult() map[string]interface{} {
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"content": map[string]interface{}{"type": "string"},
+						"content":   map[string]interface{}{"type": "string"},
+						"title":     map[string]interface{}{"type": "string"},
+						"type":      map[string]interface{}{"type": "string"},
+						"topic_key": map[string]interface{}{"type": "string"},
+						"scope":     map[string]interface{}{"type": "string"},
 					},
 					"required": []string{"content"},
 				},
 			},
 			{
 				"name":        "local_recall",
-				"description": "Busca notas locales por texto en SQLite (local-only; no consulta Engram).",
+				"description": "Busca notas locales por texto en SQLite (local-only; no consulta Engram). Acepta filtros opcionales por type y rango de fechas (since/until).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"query": map[string]interface{}{"type": "string"},
 						"limit": map[string]interface{}{"type": "integer", "minimum": 1},
+						"type":  map[string]interface{}{"type": "string"},
+						"since": map[string]interface{}{"type": "string", "description": "YYYY-MM-DD or RFC3339 (UTC)"},
+						"until": map[string]interface{}{"type": "string", "description": "YYYY-MM-DD or RFC3339 (UTC)"},
 					},
 					"required": []string{"query"},
+				},
+			},
+			{
+				"name":        "local_context",
+				"description": "Devuelve las N notas más recientes desde SQLite (local-only; no consulta Engram). Acepta filtro opcional por scope.",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"n":     map[string]interface{}{"type": "integer", "minimum": 1},
+						"scope": map[string]interface{}{"type": "string"},
+					},
 				},
 			},
 			{
@@ -550,4 +642,38 @@ func memoryItemPayload(it app.MemoryItem) map[string]interface{} {
 		"created_at": it.CreatedAt.UTC().Format(time.RFC3339Nano),
 		"updated_at": it.UpdatedAt.UTC().Format(time.RFC3339Nano),
 	}
+}
+
+// memoryItemsPayload renders a slice of items as JSON-serialisable maps
+// with metadata fields (title/type/topic_key/scope) included so MCP
+// callers using the M2 filter and context surfaces can read structured
+// fields without parsing Go's default capital-cased struct keys.
+func memoryItemsPayload(items []app.MemoryItem) []map[string]interface{} {
+	out := make([]map[string]interface{}, 0, len(items))
+	for _, it := range items {
+		row := memoryItemPayload(it)
+		row["title"] = it.Title
+		row["type"] = it.Type
+		row["topic_key"] = it.TopicKey
+		row["scope"] = it.Scope
+		out = append(out, row)
+	}
+	return out
+}
+
+// parseDateArg accepts YYYY-MM-DD (interpreted as UTC midnight) or RFC3339.
+// Mirrors the CLI runner's parseDateFlag so both surfaces stay consistent.
+func parseDateArg(raw string) (time.Time, error) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return time.Time{}, fmt.Errorf("empty date")
+	}
+	if t, err := time.Parse("2006-01-02", v); err == nil {
+		return t.UTC(), nil
+	}
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("expected YYYY-MM-DD or RFC3339, got %q", v)
+	}
+	return t.UTC(), nil
 }

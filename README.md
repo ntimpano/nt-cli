@@ -7,6 +7,7 @@ Local-first CLI de memoria personal en Go + SQLite, con modo MCP.
 ```bash
 go run ./cmd/nt-cli init
 go run ./cmd/nt-cli save "idea importante"
+go run ./cmd/nt-cli save --type=decision --topic-key=arch/auth --title="Auth Model" --scope=project "elegimos JWT"
 go run ./cmd/nt-cli recall "idea"
 go run ./cmd/nt-cli list 20
 go run ./cmd/nt-cli get 3
@@ -21,11 +22,33 @@ Base local: `~/.nt-cli/data.db`
 `update <id> "..."` reemplaza el contenido y refresca `updated_at` (UTC); `created_at` no cambia.
 Ambos comandos retornan exit code distinto de cero si el id no existe o es inválido.
 
+### Metadata estructurada (M1)
+
+`save` acepta flags opcionales para clasificar la nota:
+
+| Flag | Default | Uso |
+|------|---------|-----|
+| `--title=...` | `""` | Título corto, buscable |
+| `--type=...` | `manual` | Categoría: `decision`, `architecture`, `bugfix`, `pattern`, `config`, `discovery`, `learning`, `manual` |
+| `--topic-key=...` | `""` | Clave estable para upsert (mismo `topic_key + scope` reemplaza la observación previa) |
+| `--scope=...` | `project` | `project` o `personal` |
+
+Si no pasás flags, `save` usa el path legacy y no toca la metadata. Si pasás cualquier flag, los defaults se aplican a los campos faltantes.
+
+### Recall ranqueado (M2 — storage)
+
+`recall` y `local_recall` ahora consultan una tabla virtual FTS5 (`memory_fts`) que se mantiene en sync con `memory_items` mediante triggers. Los resultados se ordenan por `bm25(memory_fts)` (mejor relevancia primero) en vez de por `created_at`.
+
+- **Sin cambios para el caller**: la firma de `recall <query>` y `local_recall {query, limit}` no cambia.
+- **Fallback transparente**: si FTS5 no está disponible o la tabla está corrupta, la consulta degrada a `LIKE` ordenado por `created_at DESC` sin reportar error al caller.
+- **Migración aditiva**: al abrir una base previa M1, la migración crea `memory_fts` y reconstruye el índice (`INSERT INTO memory_fts(memory_fts) VALUES('rebuild')`) para que las filas legacy queden buscables sin re-guardar nada.
+- **Latencia objetivo**: p95 < 50ms con 10k filas (medido en `TestRecall_P95Under50ms`).
+
 ## Herramientas MCP
 
 | Tool | Descripción | Argumentos |
 |------|-------------|------------|
-| `local_save` | Guarda una nota local | `{ content: string }` |
+| `local_save` | Guarda una nota local | `{ content: string, title?, type?, topic_key?, scope? }` |
 | `local_recall` | Busca notas por texto | `{ query: string, limit?: integer }` |
 | `local_list` | Lista notas recientes | `{ limit?: integer }` |
 | `local_get` | Obtiene una nota por id | `{ id: integer }` |

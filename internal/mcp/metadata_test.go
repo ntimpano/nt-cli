@@ -51,19 +51,24 @@ func TestToolDescriptions_MarkLocalOnly(t *testing.T) {
 	}
 }
 
-// TestToolSchemas_Unchanged proves the spec constraint that PR2 is a
-// metadata-only change: the input schema for every advertised tool MUST
-// keep its existing structural shape (field names, types, required set).
-// This guards against accidental behavioral or contract regressions.
+// TestToolSchemas_Unchanged proves the spec constraint that PR2/PR2b
+// preserve schema continuity: every advertised tool MUST keep its
+// existing required properties and MUST NOT silently drop any of the
+// previously-advertised optional properties. Additive properties are
+// allowed (PR2b adds optional filter fields to local_recall) but the
+// original set is enforced as a non-shrinking superset.
 func TestToolSchemas_Unchanged(t *testing.T) {
 	tools := advertisedTools(t)
 
 	want := map[string]struct {
 		props    []string
 		required []string
+		// allowExtra=true means new additive properties beyond `props`
+		// are permitted (PR2b adds type/since/until to local_recall).
+		allowExtra bool
 	}{
-		"local_save":   {props: []string{"content"}, required: []string{"content"}},
-		"local_recall": {props: []string{"query", "limit"}, required: []string{"query"}},
+		"local_save":   {props: []string{"content", "title", "type", "topic_key", "scope"}, required: []string{"content"}},
+		"local_recall": {props: []string{"query", "limit"}, required: []string{"query"}, allowExtra: true},
 		"local_list":   {props: []string{"limit"}, required: nil},
 		"local_get":    {props: []string{"id"}, required: []string{"id"}},
 		"local_update": {props: []string{"id", "content"}, required: []string{"id", "content"}},
@@ -98,7 +103,7 @@ func TestToolSchemas_Unchanged(t *testing.T) {
 				t.Fatalf("tool %q schema must keep property %q, properties=%v", name, p, propertyNames(props))
 			}
 		}
-		if len(props) != len(exp.props) {
+		if !exp.allowExtra && len(props) != len(exp.props) {
 			t.Fatalf("tool %q schema property count drifted: want=%v got=%v", name, exp.props, propertyNames(props))
 		}
 
