@@ -1,0 +1,62 @@
+[
+  {
+    "query": "JWT auth middleware",
+    "expected_marker": "JWT",
+    "note": "Decision row about switching from sessions to JWT"
+  },
+  {
+    "query": "FTS5 sanitize",
+    "expected_marker": "FTS5",
+    "note": "Bugfix row about FTS5 special-character sanitization"
+  },
+  {
+    "query": "scorecard verdict",
+    "expected_marker": "scorecard",
+    "note": "Architecture row defining the parity scorecard contract"
+  },
+  {
+    "query": "engram offramp phase",
+    "expected_marker": "offramp",
+    "note": "Runbook entry on the engram offramp phases"
+  },
+  {
+    "query": "session lifecycle hook",
+    "expected_marker": "session",
+    "note": "Architecture row defining session lifecycle log"
+  },
+  {
+    "query": "backup restore lossless",
+    "expected_marker": "backup",
+    "note": "Decision on portable single-file snapshot format"
+  },
+  {
+    "query": "doctor read-only diagnostics",
+    "expected_marker": "doctor",
+    "note": "Architecture row about doctor surface guarantees"
+  },
+  {
+    "query": "memory relations graph",
+    "expected_marker": "graph",
+    "note": "Design row about memory_relations table and graph traversal"
+  },
+  {
+    "query": "knowledge continuity baseline",
+    "expected_marker": "continuity",
+    "note": "Harness baseline.json definition (this very feature)"
+  },
+  {
+    "query": "actionable recall next_action",
+    "expected_marker": "actionable",
+    "note": "Spec row about actionable recall response contract"
+  },
+  {
+    "query": "import idempotent dedupe",
+    "expected_marker": "import",
+    "note": "Bugfix row on import dedupe by topic_key + sha256"
+  },
+  {
+    "query": "feature flag rollback",
+    "expected_marker": "flag",
+    "note": "Decision on environment-variable feature flag strategy"
+  }
+]
