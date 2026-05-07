@@ -18,3 +18,8 @@ Migration note:
 ### Project scoping (cluster 2, PR2b)
 - `Service.List`/`local_list` aplican scoping por proyecto activo por default y exponen bypass explícito con `all_projects=true`.
 - `ImportRecords` ahora hace dedupe por `(project_id, topic_key, content_hash)` y estampa `project_id` activo en inserts para aislar imports entre proyectos.
+
+### Store robustness (cluster 3, PR3)
+- Restore ahora reabre SQLite reaplicando pragmas de integridad (`foreign_keys=ON`, `journal_mode=WAL`), preservando cascadas FK post-restore.
+- `project_switch` (MCP y CLI) usa backups pre-switch únicos con patrón `pre-switch-<projectID>-<unix>.db`, deja de ocultar fallas de backup y aborta el switch cuando el backup falla.
+- Se agrega retención keep-last-5 por proyecto para snapshots pre-switch, eliminando backups más viejos del mismo proyecto.
