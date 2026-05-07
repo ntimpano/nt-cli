@@ -70,7 +70,7 @@ func TestAutoswitch_KnownHighConfidence_SilentSwitch(t *testing.T) {
 		GetCwd:        func() (string, error) { return "/fake/cwd", nil },
 		IsInteractive: func() bool { return false }, // should not matter for silent switch
 		Stdin:         strings.NewReader(""),
-		Stdout:        &stdout,
+		Stderr:        &stdout,
 	}
 
 	switched := app.ApplyAutoswitch(svc, policy)
@@ -104,7 +104,7 @@ func TestAutoswitch_KnownHighConfidence_SameProject_NoSwitch(t *testing.T) {
 		GetCwd:        func() (string, error) { return "/fake/cwd", nil },
 		IsInteractive: func() bool { return false },
 		Stdin:         strings.NewReader(""),
-		Stdout:        &bytes.Buffer{},
+		Stderr:        &bytes.Buffer{},
 	}
 
 	switched := app.ApplyAutoswitch(svc, policy)
@@ -132,7 +132,7 @@ func TestAutoswitch_New_Interactive_UserAccepts(t *testing.T) {
 		GetCwd:        func() (string, error) { return "/fake/cwd", nil },
 		IsInteractive: func() bool { return true },
 		Stdin:         strings.NewReader("y\n"),
-		Stdout:        &stdout,
+		Stderr:        &stdout,
 	}
 
 	switched := app.ApplyAutoswitch(svc, policy)
@@ -164,7 +164,7 @@ func TestAutoswitch_New_Interactive_UserDeclines(t *testing.T) {
 		GetCwd:        func() (string, error) { return "/fake/cwd", nil },
 		IsInteractive: func() bool { return true },
 		Stdin:         strings.NewReader("n\n"),
-		Stdout:        &stdout,
+		Stderr:        &stdout,
 	}
 
 	switched := app.ApplyAutoswitch(svc, policy)
@@ -195,7 +195,7 @@ func TestAutoswitch_New_NonInteractive_NoSwitchNoPrompt(t *testing.T) {
 		GetCwd:        func() (string, error) { return "/fake/cwd", nil },
 		IsInteractive: func() bool { return false },
 		Stdin:         strings.NewReader(""),
-		Stdout:        &stdout,
+		Stderr:        &stdout,
 	}
 
 	switched := app.ApplyAutoswitch(svc, policy)
@@ -226,7 +226,7 @@ func TestAutoswitch_Ambiguous_NonInteractive_NoSwitch(t *testing.T) {
 		GetCwd:        func() (string, error) { return "/fake/cwd", nil },
 		IsInteractive: func() bool { return false },
 		Stdin:         strings.NewReader(""),
-		Stdout:        &stdout,
+		Stderr:        &stdout,
 	}
 
 	switched := app.ApplyAutoswitch(svc, policy)
@@ -303,7 +303,7 @@ func TestAutoswitch_None_NoSwitch(t *testing.T) {
 		GetCwd:        func() (string, error) { return "/fake/cwd", nil },
 		IsInteractive: func() bool { return true },
 		Stdin:         strings.NewReader("y\n"),
-		Stdout:        &bytes.Buffer{},
+		Stderr:        &bytes.Buffer{},
 	}
 
 	switched := app.ApplyAutoswitch(svc, policy)

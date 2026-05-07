@@ -48,7 +48,7 @@ type summaryView struct {
 // (which falls back to os.Stdin inside the policy).
 func RunCLIWithStdin(svc *Service, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) >= 1 && IsMemoryCommand(args[0]) && svc != nil {
-		policy := NewDefaultAutoswitchPolicy(stdin, stdout)
+		policy := NewDefaultAutoswitchPolicy(stdin, stderr)
 		ApplyAutoswitch(svc, policy)
 	}
 	return runCLIWithInput(svc, args, stdin, stdout, stderr)

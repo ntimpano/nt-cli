@@ -38,8 +38,10 @@ type AutoswitchPolicy struct {
 	IsInteractive func() bool
 	// Stdin is used to read the user's confirmation in interactive mode.
 	Stdin io.Reader
-	// Stdout is used to print the confirmation prompt.
-	Stdout io.Writer
+	// Stderr is used to print the confirmation prompt. Interactive prompts
+	// must not pollute stdout so that machine-readable output (e.g. --json)
+	// remains clean.
+	Stderr io.Writer
 }
 
 // defaultIsInteractive returns true when os.Stdin is a character device.
@@ -53,12 +55,12 @@ func defaultIsInteractive() bool {
 
 // NewDefaultAutoswitchPolicy constructs a production-ready policy wired to
 // real os.Getwd, real TTY detection, and real os.Stdin.
-func NewDefaultAutoswitchPolicy(stdin io.Reader, stdout io.Writer) AutoswitchPolicy {
+func NewDefaultAutoswitchPolicy(stdin io.Reader, stderr io.Writer) AutoswitchPolicy {
 	return AutoswitchPolicy{
 		GetCwd:        os.Getwd,
 		IsInteractive: defaultIsInteractive,
 		Stdin:         stdin,
-		Stdout:        stdout,
+		Stderr:        stderr,
 	}
 }
 
@@ -167,21 +169,21 @@ func promptSwitch(svc *Service, eng ProjectEngine, candidate string, policy Auto
 		return false
 	}
 
-	stdout := policy.Stdout
-	if stdout == nil {
-		stdout = os.Stdout
+	stderr := policy.Stderr
+	if stderr == nil {
+		stderr = os.Stderr
 	}
 	stdin := policy.Stdin
 	if stdin == nil {
 		stdin = os.Stdin
 	}
 
-	fmt.Fprintf(stdout, "autoswitch: detected project %q — switch context? [y/N] ", candidate)
+	fmt.Fprintf(stderr, "autoswitch: detected project %q — switch context? [y/N] ", candidate)
 	reader := bufio.NewReader(stdin)
 	line, err := reader.ReadString('\n')
 	if err != nil {
 		// EOF or read error: treat as decline.
-		fmt.Fprintln(stdout, "")
+		fmt.Fprintln(stderr, "")
 		return false
 	}
 	answer := strings.ToLower(strings.TrimSpace(line))
