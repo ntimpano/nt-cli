@@ -88,7 +88,8 @@ type localContextArgs struct {
 }
 
 type localListArgs struct {
-	Limit int `json:"limit"`
+	Limit       int  `json:"limit"`
+	AllProjects bool `json:"all_projects,omitempty"`
 }
 
 type localDeleteArgs struct {
@@ -519,12 +520,14 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 
 		case "local_list":
 			var args localListArgs
-			_ = json.Unmarshal(params.Arguments, &args)
-			items, err := svc.List(args.Limit)
+			if err := json.Unmarshal(params.Arguments, &args); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+			}
+			items, err := svc.ListOpts(args.Limit, args.AllProjects)
 			if err != nil {
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
 			}
-			b, _ := json.Marshal(items)
+			b, _ := json.Marshal(memoryItemsPayload(items))
 			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
 
 		case "local_delete":
@@ -977,11 +980,12 @@ func toolsListResult() map[string]interface{} {
 			},
 			{
 				"name":        "local_list",
-				"description": "Lista notas recientes desde SQLite (local-only; no incluye backend externo).",
+				"description": "Lista notas recientes desde SQLite (local-only; no incluye backend externo). Por default filtra por proyecto activo; usar all_projects=true para bypass.",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"limit": map[string]interface{}{"type": "integer", "minimum": 1},
+						"limit":        map[string]interface{}{"type": "integer", "minimum": 1},
+						"all_projects": map[string]interface{}{"type": "boolean"},
 					},
 				},
 			},

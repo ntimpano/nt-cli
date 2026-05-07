@@ -117,7 +117,7 @@ Si no pasás flags, `save` usa el path legacy y no toca la metadata. Si pasás c
 |------|-------------|------------|
 | `local_save` | Guarda una nota local | `{ content: string, title?, type?, topic_key?, scope? }` |
 | `local_recall` | Busca notas por texto | `{ query: string, limit?: integer }` |
-| `local_list` | Lista notas recientes | `{ limit?: integer }` |
+| `local_list` | Lista notas recientes (scoped por proyecto activo por default) | `{ limit?: integer, all_projects?: boolean }` |
 | `local_get` | Obtiene una nota por id | `{ id: integer }` |
 | `local_update` | Actualiza el contenido de una nota por id | `{ id: integer, content: string }` |
 | `local_delete` | Elimina una nota por id | `{ id: integer }` |
@@ -132,6 +132,11 @@ Si no pasás flags, `save` usa el path legacy y no toca la metadata. Si pasás c
 `local_get` y `local_update` reportan errores con `isError: true` cuando el id no existe, el id es inválido o el contenido es vacío/whitespace.
 
 Todos los tools `local_*` son **local-only**: operan exclusivamente sobre `~/.nt-cli/data.db` y no comunican con ningún backend externo.
+
+### Nota de migración (v0.5.4 PR2b)
+
+- `local_list` ahora devuelve solo notas del proyecto activo por default.
+- Para recuperar el comportamiento global anterior, pasá `all_projects=true`.
 
 ## Integración con OpenCode (MCP)
 

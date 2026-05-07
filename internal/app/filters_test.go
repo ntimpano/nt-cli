@@ -12,14 +12,18 @@ import (
 type filterFakeStore struct {
 	fakeStore
 
-	recallFilteredCalls   int
-	lastFilterOpts        RecallOptions
-	recallFilteredResult  []MemoryItem
+	recallFilteredCalls  int
+	lastFilterOpts       RecallOptions
+	recallFilteredResult []MemoryItem
 
-	contextCalls    int
-	lastContextN    int
+	contextCalls     int
+	lastContextN     int
 	lastContextScope string
-	contextResult   []MemoryItem
+	contextResult    []MemoryItem
+
+	listFilteredCalls  int
+	lastListOpts       ListOptions
+	listFilteredResult []MemoryItem
 }
 
 func (f *filterFakeStore) RecallFiltered(opts RecallOptions) ([]MemoryItem, error) {
@@ -42,7 +46,9 @@ func (f *filterFakeStore) ContextFiltered(opts ContextOptions) ([]MemoryItem, er
 
 // ListFiltered is the project-scoped extension stub.
 func (f *filterFakeStore) ListFiltered(opts ListOptions) ([]MemoryItem, error) {
-	return nil, nil
+	f.listFilteredCalls++
+	f.lastListOpts = opts
+	return f.listFilteredResult, nil
 }
 
 // TestRecallWithOptions_Validation rejects empty query before touching the
@@ -164,5 +170,45 @@ func TestContext_StoreWithoutContextCapability(t *testing.T) {
 	_, err := svc.Context(5, "")
 	if err == nil {
 		t.Fatalf("expected error when store doesn't support Context, got nil")
+	}
+}
+
+func TestServiceList_DefaultScopesByActiveProject(t *testing.T) {
+	fake := &filterFakeStore{listFilteredResult: []MemoryItem{{ID: 2, Content: "scoped"}}}
+	svc := NewService(fake)
+	svc.SetActiveProject(7)
+
+	items, err := svc.List(3)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 1 || items[0].Content != "scoped" {
+		t.Fatalf("unexpected items: %+v", items)
+	}
+	if fake.listFilteredCalls != 1 {
+		t.Fatalf("expected ListFiltered call, got %d", fake.listFilteredCalls)
+	}
+	if fake.lastListOpts.ProjectID != 7 || fake.lastListOpts.AllProjects {
+		t.Fatalf("expected scoped opts (project_id=7, all_projects=false), got %+v", fake.lastListOpts)
+	}
+}
+
+func TestServiceListOpts_AllProjectsBypass(t *testing.T) {
+	fake := &filterFakeStore{listFilteredResult: []MemoryItem{{ID: 1}, {ID: 2}}}
+	svc := NewService(fake)
+	svc.SetActiveProject(9)
+
+	items, err := svc.ListOpts(10, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("expected 2 items, got %d", len(items))
+	}
+	if fake.listFilteredCalls != 1 {
+		t.Fatalf("expected ListFiltered call, got %d", fake.listFilteredCalls)
+	}
+	if !fake.lastListOpts.AllProjects || fake.lastListOpts.ProjectID != 9 {
+		t.Fatalf("expected bypass opts (all_projects=true, project_id=9), got %+v", fake.lastListOpts)
 	}
 }
