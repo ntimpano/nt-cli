@@ -2,7 +2,7 @@
   "nt-leader": {
     "description": "NT Leader SDD Orchestrator - based on Gentle AI + Engram, adapted for nt-cli",
     "mode": "primary",
-    "model": "github-copilot/claude-sonnet-4.6",
+    "model": "github-copilot/claude-opus-4.7",
     "permission": {
       "task": {
         "*": "deny",
@@ -257,7 +257,7 @@
     "description": "NT custom team: Implement code changes from task definitions",
     "hidden": true,
     "mode": "subagent",
-    "model": "github-copilot/gpt-5.3-codex",
+    "model": "github-copilot/gpt-5.2-codex",
     "prompt": "{file:/opt/nt-cli/prompts/sdd/sdd-apply.md}",
     "tools": {
       "bash": true,
