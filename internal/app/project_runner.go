@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -84,14 +85,16 @@ func runProjectSwitch(svc *Service, args []string, stdout, stderr io.Writer) int
 		return 1
 	}
 
-	// Task 2.8: take a pre-switch backup snapshot before committing the switch.
-	backupPath := preBackupPath()
-	if backupErr := svc.Backup(backupPath); backupErr != nil {
-		// Non-fatal: warn but proceed — the backup directory may not exist yet
-		// on a first run; the spec says "take a backup before the switch commits",
-		// not "abort if backup fails". We surface the warning so the user knows.
-		fmt.Fprintf(stderr, "warning: pre-switch backup failed: %v\n", backupErr)
+	backupPath, pathErr := preBackupPath(id)
+	if pathErr != nil {
+		fmt.Fprintf(stderr, "project switch failed: pre-switch backup path: %v\n", pathErr)
+		return 1
 	}
+	if backupErr := svc.Backup(backupPath); backupErr != nil {
+		fmt.Fprintf(stderr, "project switch failed: pre-switch backup: %v\n", backupErr)
+		return 1
+	}
+	cleanupPreSwitchBackups(id)
 
 	if err := eng.Switch(id); err != nil {
 		fmt.Fprintf(stderr, "project switch failed: %v\n", err)
@@ -124,15 +127,51 @@ func runProjectDetect(svc *Service, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// preBackupPath returns a timestamped path inside the default backup directory
-// for the pre-switch snapshot.
-func preBackupPath() string {
+// preBackupPath returns a unique path inside ~/.nt-cli/backups with pattern
+// pre-switch-<projectID>-<unix>.db.
+func preBackupPath(projectID int64) (string, error) {
 	home, _ := os.UserHomeDir()
 	if home == "" {
 		home = os.TempDir()
 	}
 	backupDir := filepath.Join(home, ".nt-cli", "backups")
-	_ = os.MkdirAll(backupDir, 0o755)
-	stamp := time.Now().UTC().Format("20060102T150405Z")
-	return filepath.Join(backupDir, "pre-switch-"+stamp+".db")
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		return "", err
+	}
+	stamp := time.Now().UTC().UnixNano()
+	return filepath.Join(backupDir, fmt.Sprintf("pre-switch-%d-%d.db", projectID, stamp)), nil
+}
+
+func cleanupPreSwitchBackups(projectID int64) {
+	home, _ := os.UserHomeDir()
+	if home == "" {
+		home = os.TempDir()
+	}
+	backupDir := filepath.Join(home, ".nt-cli", "backups")
+	pattern := filepath.Join(backupDir, fmt.Sprintf("pre-switch-%d-*.db", projectID))
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) <= 5 {
+		return
+	}
+	type entry struct {
+		path string
+		mod  time.Time
+	}
+	entries := make([]entry, 0, len(matches))
+	for _, p := range matches {
+		info, statErr := os.Stat(p)
+		if statErr != nil {
+			continue
+		}
+		entries = append(entries, entry{path: p, mod: info.ModTime()})
+	}
+	if len(entries) <= 5 {
+		return
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].mod.After(entries[j].mod)
+	})
+	for _, e := range entries[5:] {
+		_ = os.Remove(e.path)
+	}
 }

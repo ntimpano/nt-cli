@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -795,8 +796,14 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 			if err := json.Unmarshal(params.Arguments, &args); err != nil || args.ID <= 0 {
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("id is required and must be > 0")}, true
 			}
-			// Pre-switch backup per spec task 2.8 / 3.7 contract.
-			_ = svc.Backup(preBackupPathMCP())
+			prePath, pathErr := preBackupPathMCP(args.ID)
+			if pathErr != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(fmt.Sprintf("pre-switch backup path: %v", pathErr))}, true
+			}
+			if err := svc.Backup(prePath); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(fmt.Sprintf("pre-switch backup failed: %v", err))}, true
+			}
+			cleanupPreSwitchBackupsMCP(args.ID)
 			if err := svc.ProjectEng.Switch(args.ID); err != nil {
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
 			}
@@ -1383,12 +1390,51 @@ func resourcesReadResult(rawParams json.RawMessage, svc *app.Service) interface{
 }
 
 // Mirrors project_runner.go's preBackupPath convention.
-func preBackupPathMCP() string {
+func preBackupPathMCP(projectID int64) (string, error) {
 	dir := os.Getenv("HOME")
 	if dir == "" {
 		dir = "/tmp"
 	}
-	return dir + "/.nt-cli/backups/pre-switch-mcp.db"
+	backupDir := filepath.Join(dir, ".nt-cli", "backups")
+	if err := os.MkdirAll(backupDir, 0o755); err != nil {
+		return "", err
+	}
+	name := fmt.Sprintf("pre-switch-%d-%d.db", projectID, time.Now().UTC().UnixNano())
+	return filepath.Join(backupDir, name), nil
+}
+
+func cleanupPreSwitchBackupsMCP(projectID int64) {
+	dir := os.Getenv("HOME")
+	if dir == "" {
+		dir = "/tmp"
+	}
+	backupDir := filepath.Join(dir, ".nt-cli", "backups")
+	pattern := filepath.Join(backupDir, fmt.Sprintf("pre-switch-%d-*.db", projectID))
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) <= 5 {
+		return
+	}
+	type entry struct {
+		path string
+		mod  time.Time
+	}
+	entries := make([]entry, 0, len(matches))
+	for _, p := range matches {
+		info, statErr := os.Stat(p)
+		if statErr != nil {
+			continue
+		}
+		entries = append(entries, entry{path: p, mod: info.ModTime()})
+	}
+	if len(entries) <= 5 {
+		return
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].mod.After(entries[j].mod)
+	})
+	for _, e := range entries[5:] {
+		_ = os.Remove(e.path)
+	}
 }
 
 // resourcesListResult returns the resources/list payload. When the service
