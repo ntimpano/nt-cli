@@ -13,12 +13,12 @@ import (
 // so the RunCLI project subcommands can be exercised.
 type projectMemStore struct {
 	*filterMemStore
-	projects     []app.Project
-	active       app.Project
+	projects        []app.Project
+	active          app.Project
 	setActiveCalled bool
 	lastSetActiveID int64
-	backupCalled bool
-	backupErr    error
+	backupCalled    bool
+	backupErr       error
 }
 
 func newProjectMemStore() *projectMemStore {
@@ -31,7 +31,7 @@ func newProjectMemStore() *projectMemStore {
 }
 
 func (p *projectMemStore) ListProjects() ([]app.Project, error) { return p.projects, nil }
-func (p *projectMemStore) GetActive() (app.Project, error)       { return p.active, nil }
+func (p *projectMemStore) GetActive() (app.Project, error)      { return p.active, nil }
 func (p *projectMemStore) SetActive(id int64) error {
 	p.setActiveCalled = true
 	p.lastSetActiveID = id
