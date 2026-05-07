@@ -334,476 +334,475 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 	isNotification := len(req.ID) == 0
 
 	switch req.Method {
-		case "initialize":
-			if isNotification {
-				return response{}, false
-			}
-			protocolVersion := "2024-11-05"
-			if len(req.Params) > 0 {
-				var p initializeParams
-				if err := json.Unmarshal(req.Params, &p); err == nil && strings.TrimSpace(p.ProtocolVersion) != "" {
-					protocolVersion = strings.TrimSpace(p.ProtocolVersion)
-				}
-			}
-			result := map[string]interface{}{
-				"protocolVersion": protocolVersion,
-				"serverInfo": map[string]interface{}{
-					"name":    "nt-cli",
-					"version": "0.1.0",
-				},
-				"capabilities": map[string]interface{}{
-					"tools": map[string]interface{}{},
-				},
-			}
-			return response{JSONRPC: "2.0", ID: req.ID, Result: result}, true
-
-		case "notifications/initialized", "$/cancelRequest":
+	case "initialize":
+		if isNotification {
 			return response{}, false
-
-		case "resources/list":
-			if isNotification {
-				return response{}, false
+		}
+		protocolVersion := "2024-11-05"
+		if len(req.Params) > 0 {
+			var p initializeParams
+			if err := json.Unmarshal(req.Params, &p); err == nil && strings.TrimSpace(p.ProtocolVersion) != "" {
+				protocolVersion = strings.TrimSpace(p.ProtocolVersion)
 			}
-			return response{JSONRPC: "2.0", ID: req.ID, Result: resourcesListResult(svc)}, true
+		}
+		result := map[string]interface{}{
+			"protocolVersion": protocolVersion,
+			"serverInfo": map[string]interface{}{
+				"name":    "nt-cli",
+				"version": "0.1.0",
+			},
+			"capabilities": map[string]interface{}{
+				"tools": map[string]interface{}{},
+			},
+		}
+		return response{JSONRPC: "2.0", ID: req.ID, Result: result}, true
 
-		case "resources/read":
-			if isNotification {
-				return response{}, false
-			}
-			return response{JSONRPC: "2.0", ID: req.ID, Result: resourcesReadResult(req.Params, svc)}, true
+	case "notifications/initialized", "$/cancelRequest":
+		return response{}, false
 
-		case "prompts/list":
-			if isNotification {
-				return response{}, false
-			}
-			return response{JSONRPC: "2.0", ID: req.ID, Result: map[string]interface{}{"prompts": []interface{}{}}}, true
+	case "resources/list":
+		if isNotification {
+			return response{}, false
+		}
+		return response{JSONRPC: "2.0", ID: req.ID, Result: resourcesListResult(svc)}, true
 
-		case "tools":
-			if isNotification {
-				return response{}, false
-			}
-			return response{JSONRPC: "2.0", ID: req.ID, Result: toolsListResult()}, true
+	case "resources/read":
+		if isNotification {
+			return response{}, false
+		}
+		return response{JSONRPC: "2.0", ID: req.ID, Result: resourcesReadResult(req.Params, svc)}, true
 
-		case "tools/list":
-			if isNotification {
-				return response{}, false
-			}
-			return response{JSONRPC: "2.0", ID: req.ID, Result: toolsListResult()}, true
+	case "prompts/list":
+		if isNotification {
+			return response{}, false
+		}
+		return response{JSONRPC: "2.0", ID: req.ID, Result: map[string]interface{}{"prompts": []interface{}{}}}, true
 
-		case "tools/call":
-			if isNotification {
-				return response{}, false
-			}
-			var params toolsCallParams
-			if err := json.Unmarshal(req.Params, &params); err != nil {
-				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid params"}}, true
-			}
+	case "tools":
+		if isNotification {
+			return response{}, false
+		}
+		return response{JSONRPC: "2.0", ID: req.ID, Result: toolsListResult()}, true
 
-			switch params.Name {
-			case "local_save":
-				var args localSaveArgs
-				if err := json.Unmarshal(params.Arguments, &args); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+	case "tools/list":
+		if isNotification {
+			return response{}, false
+		}
+		return response{JSONRPC: "2.0", ID: req.ID, Result: toolsListResult()}, true
+
+	case "tools/call":
+		if isNotification {
+			return response{}, false
+		}
+		var params toolsCallParams
+		if err := json.Unmarshal(req.Params, &params); err != nil {
+			return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid params"}}, true
+		}
+
+		switch params.Name {
+		case "local_save":
+			var args localSaveArgs
+			if err := json.Unmarshal(params.Arguments, &args); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+			}
+			// Route to SaveWithMeta only when the caller provided at
+			// least one metadata field. This preserves the legacy
+			// JSON-RPC contract for older clients and keeps test fakes
+			// that don't implement MetadataStore working.
+			hasMeta := args.Title != "" || args.Type != "" || args.TopicKey != "" || args.Scope != ""
+			var (
+				id      int64
+				saveErr error
+			)
+			if hasMeta {
+				id, saveErr = svc.SaveWithMeta(app.SaveRequest{
+					Content:  args.Content,
+					Title:    args.Title,
+					Type:     args.Type,
+					TopicKey: args.TopicKey,
+					Scope:    args.Scope,
+				})
+			} else {
+				id, saveErr = svc.Save(args.Content)
+			}
+			if saveErr != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(saveErr.Error())}, true
+			}
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("saved #%d", id))}, true
+
+		case "local_recall":
+			var args localRecallArgs
+			if err := json.Unmarshal(params.Arguments, &args); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+			}
+			hasFilter := strings.TrimSpace(args.Type) != "" ||
+				strings.TrimSpace(args.Since) != "" ||
+				strings.TrimSpace(args.Until) != ""
+			// PR4b: when NTCLI_FF_GRAPH=1 OR include_superseded was
+			// passed, route through RecallWithOptions so the service
+			// layer can dispatch to RecallGraphAware. With the flag
+			// OFF and no opts, behavior is byte-identical to PR2b.
+			useOpts := hasFilter || graphFeatureEnabled() || args.IncludeSuperseded || actionableRecallEnabled()
+			var (
+				items []app.MemoryItem
+				err   error
+			)
+			if useOpts {
+				opts := app.RecallOptions{
+					Query:             args.Query,
+					Type:              args.Type,
+					Limit:             args.Limit,
+					IncludeSuperseded: args.IncludeSuperseded,
 				}
-				// Route to SaveWithMeta only when the caller provided at
-				// least one metadata field. This preserves the legacy
-				// JSON-RPC contract for older clients and keeps test fakes
-				// that don't implement MetadataStore working.
-				hasMeta := args.Title != "" || args.Type != "" || args.TopicKey != "" || args.Scope != ""
-				var (
-					id    int64
-					saveErr error
-				)
-				if hasMeta {
-					id, saveErr = svc.SaveWithMeta(app.SaveRequest{
-						Content:  args.Content,
-						Title:    args.Title,
-						Type:     args.Type,
-						TopicKey: args.TopicKey,
-						Scope:    args.Scope,
-					})
-				} else {
-					id, saveErr = svc.Save(args.Content)
-				}
-				if saveErr != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(saveErr.Error())}, true
-				}
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("saved #%d", id))}, true
-
-			case "local_recall":
-				var args localRecallArgs
-				if err := json.Unmarshal(params.Arguments, &args); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
-				}
-				hasFilter := strings.TrimSpace(args.Type) != "" ||
-					strings.TrimSpace(args.Since) != "" ||
-					strings.TrimSpace(args.Until) != ""
-				// PR4b: when NTCLI_FF_GRAPH=1 OR include_superseded was
-				// passed, route through RecallWithOptions so the service
-				// layer can dispatch to RecallGraphAware. With the flag
-				// OFF and no opts, behavior is byte-identical to PR2b.
-				useOpts := hasFilter || graphFeatureEnabled() || args.IncludeSuperseded || actionableRecallEnabled()
-				var (
-					items []app.MemoryItem
-					err   error
-				)
-				if useOpts {
-					opts := app.RecallOptions{
-						Query:             args.Query,
-						Type:              args.Type,
-						Limit:             args.Limit,
-						IncludeSuperseded: args.IncludeSuperseded,
+				if args.Since != "" {
+					t, perr := parseDateArg(args.Since)
+					if perr != nil {
+						return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("invalid since: " + perr.Error())}, true
 					}
-					if args.Since != "" {
-						t, perr := parseDateArg(args.Since)
-						if perr != nil {
-							return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("invalid since: " + perr.Error())}, true
-						}
-						opts.Since = t
+					opts.Since = t
+				}
+				if args.Until != "" {
+					t, perr := parseDateArg(args.Until)
+					if perr != nil {
+						return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("invalid until: " + perr.Error())}, true
 					}
-					if args.Until != "" {
-						t, perr := parseDateArg(args.Until)
-						if perr != nil {
-							return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("invalid until: " + perr.Error())}, true
-						}
-						opts.Until = t
-					}
-					items, err = svc.RecallWithOptions(opts)
-				} else {
-					items, err = svc.Recall(args.Query, args.Limit)
+					opts.Until = t
 				}
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				// PR5: when NTCLI_FF_ACTIONABLE=1, wrap the raw items
-				// in the actionable-recall response shape (matches +
-				// next_action + checklist + inferred_paths). With the
-				// flag OFF, the legacy raw-array payload is returned
-				// unchanged — backward-compatible for any client that
-				// has not opted in to the new contract.
-				if actionableRecallEnabled() {
-					actionable := app.BuildActionableRecall(items)
-					ab, _ := json.Marshal(actionableRecallPayload(actionable))
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(ab))}, true
-				}
-				b, _ := json.Marshal(memoryItemsPayload(items))
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
+				items, err = svc.RecallWithOptions(opts)
+			} else {
+				items, err = svc.Recall(args.Query, args.Limit)
+			}
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			// PR5: when NTCLI_FF_ACTIONABLE=1, wrap the raw items
+			// in the actionable-recall response shape (matches +
+			// next_action + checklist + inferred_paths). With the
+			// flag OFF, the legacy raw-array payload is returned
+			// unchanged — backward-compatible for any client that
+			// has not opted in to the new contract.
+			if actionableRecallEnabled() {
+				actionable := app.BuildActionableRecall(items)
+				ab, _ := json.Marshal(actionableRecallPayload(actionable))
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(ab))}, true
+			}
+			b, _ := json.Marshal(memoryItemsPayload(items))
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
 
-			case "local_context":
-				var args localContextArgs
-				_ = json.Unmarshal(params.Arguments, &args)
-				items, err := svc.ContextOpts(args.N, args.Scope, args.AllProjects)
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				b, _ := json.Marshal(memoryItemsPayload(items))
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
+		case "local_context":
+			var args localContextArgs
+			_ = json.Unmarshal(params.Arguments, &args)
+			items, err := svc.ContextOpts(args.N, args.Scope, args.AllProjects)
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			b, _ := json.Marshal(memoryItemsPayload(items))
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
 
+		case "local_list":
+			var args localListArgs
+			_ = json.Unmarshal(params.Arguments, &args)
+			items, err := svc.List(args.Limit)
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			b, _ := json.Marshal(items)
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
 
-			case "local_list":
-				var args localListArgs
-				_ = json.Unmarshal(params.Arguments, &args)
-				items, err := svc.List(args.Limit)
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				b, _ := json.Marshal(items)
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
+		case "local_delete":
+			var args localDeleteArgs
+			if err := json.Unmarshal(params.Arguments, &args); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+			}
+			deleted, err := svc.Delete(args.ID)
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			if !deleted {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("note #%d not found", args.ID))}, true
+			}
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("deleted #%d", args.ID))}, true
 
-			case "local_delete":
-				var args localDeleteArgs
+		case "local_get":
+			var args localGetArgs
+			if err := json.Unmarshal(params.Arguments, &args); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+			}
+			item, err := svc.Get(args.ID)
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			b, _ := json.Marshal(memoryItemPayload(item))
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
+
+		case "local_update":
+			var args localUpdateArgs
+			if err := json.Unmarshal(params.Arguments, &args); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+			}
+			ok, err := svc.Update(args.ID, args.Content)
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			if !ok {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(fmt.Sprintf("note #%d not found", args.ID))}, true
+			}
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("updated #%d", args.ID))}, true
+
+		case "local_session_start":
+			var args localSessionArgs
+			if err := json.Unmarshal(params.Arguments, &args); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+			}
+			if err := svc.SessionStart(args.SessionID); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("session started %s", strings.TrimSpace(args.SessionID)))}, true
+
+		case "local_session_end":
+			var args localSessionArgs
+			if err := json.Unmarshal(params.Arguments, &args); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+			}
+			if err := svc.SessionEnd(args.SessionID); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("session ended %s", strings.TrimSpace(args.SessionID)))}, true
+
+		case "local_session_summary":
+			var args localSessionArgs
+			if err := json.Unmarshal(params.Arguments, &args); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+			}
+			if err := svc.SessionSummary(args.SessionID, args.Summary); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("session summary %s", strings.TrimSpace(args.SessionID)))}, true
+
+		case "ntcli_local_record_observation":
+			var args localRecordObservationArgs
+			if err := json.Unmarshal(params.Arguments, &args); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+			}
+			id, err := svc.RecordObservationFromMarker(args.Marker)
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("invalid marker: %v", err))}, true
+			}
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("recorded observation #%d", id))}, true
+
+		case "local_import":
+			var args localImportArgs
+			if err := json.Unmarshal(params.Arguments, &args); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+			}
+			path := strings.TrimSpace(args.Path)
+			if path == "" {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("path is required")}, true
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(fmt.Sprintf("read file: %v", err))}, true
+			}
+			res, err := svc.ImportJSON(data, args.DryRun)
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			prefix := "import"
+			if args.DryRun {
+				prefix = "import (dry-run)"
+			}
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("%s: inserted=%d skipped=%d", prefix, res.Inserted, res.Skipped))}, true
+
+		case "local_backup":
+			var args localPathArgs
+			if err := json.Unmarshal(params.Arguments, &args); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+			}
+			if err := svc.Backup(args.Path); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("backup written to %s", strings.TrimSpace(args.Path)))}, true
+
+		case "local_restore":
+			var args localPathArgs
+			if err := json.Unmarshal(params.Arguments, &args); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+			}
+			if err := svc.Restore(args.Path); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("restored from %s", strings.TrimSpace(args.Path)))}, true
+
+		case "local_doctor":
+			report, err := svc.Doctor()
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			out := report.Summary
+			for _, msg := range report.IntegrityMessages {
+				out += "\n  integrity: " + msg
+			}
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(out)}, true
+
+		case "parity_scorecard":
+			var args parityScorecardArgs
+			if len(params.Arguments) > 0 {
 				if err := json.Unmarshal(params.Arguments, &args); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("invalid arguments: " + err.Error())}, true
 				}
-				deleted, err := svc.Delete(args.ID)
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				if !deleted {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("note #%d not found", args.ID))}, true
-				}
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("deleted #%d", args.ID))}, true
+			}
+			v := parity.ComputeScorecard(args.toSignals())
+			b, err := json.Marshal(v)
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("encode verdict: " + err.Error())}, true
+			}
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
 
-			case "local_get":
-				var args localGetArgs
-				if err := json.Unmarshal(params.Arguments, &args); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
-				}
-				item, err := svc.Get(args.ID)
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				b, _ := json.Marshal(memoryItemPayload(item))
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
-
-			case "local_update":
-				var args localUpdateArgs
-				if err := json.Unmarshal(params.Arguments, &args); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
-				}
-				ok, err := svc.Update(args.ID, args.Content)
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				if !ok {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(fmt.Sprintf("note #%d not found", args.ID))}, true
-				}
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("updated #%d", args.ID))}, true
-
-			case "local_session_start":
-				var args localSessionArgs
-				if err := json.Unmarshal(params.Arguments, &args); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
-				}
-				if err := svc.SessionStart(args.SessionID); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("session started %s", strings.TrimSpace(args.SessionID)))}, true
-
-			case "local_session_end":
-				var args localSessionArgs
-				if err := json.Unmarshal(params.Arguments, &args); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
-				}
-				if err := svc.SessionEnd(args.SessionID); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("session ended %s", strings.TrimSpace(args.SessionID)))}, true
-
-			case "local_session_summary":
-				var args localSessionArgs
-				if err := json.Unmarshal(params.Arguments, &args); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
-				}
-				if err := svc.SessionSummary(args.SessionID, args.Summary); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("session summary %s", strings.TrimSpace(args.SessionID)))}, true
-
-			case "ntcli_local_record_observation":
-				var args localRecordObservationArgs
-				if err := json.Unmarshal(params.Arguments, &args); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
-				}
-				id, err := svc.RecordObservationFromMarker(args.Marker)
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("invalid marker: %v", err))}, true
-				}
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("recorded observation #%d", id))}, true
-
-			case "local_import":
-				var args localImportArgs
-				if err := json.Unmarshal(params.Arguments, &args); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
-				}
-				path := strings.TrimSpace(args.Path)
-				if path == "" {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("path is required")}, true
-				}
-				data, err := os.ReadFile(path)
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(fmt.Sprintf("read file: %v", err))}, true
-				}
-				res, err := svc.ImportJSON(data, args.DryRun)
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				prefix := "import"
-				if args.DryRun {
-					prefix = "import (dry-run)"
-				}
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("%s: inserted=%d skipped=%d", prefix, res.Inserted, res.Skipped))}, true
-
-			case "local_backup":
-				var args localPathArgs
-				if err := json.Unmarshal(params.Arguments, &args); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
-				}
-				if err := svc.Backup(args.Path); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("backup written to %s", strings.TrimSpace(args.Path)))}, true
-
-			case "local_restore":
-				var args localPathArgs
-				if err := json.Unmarshal(params.Arguments, &args); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
-				}
-				if err := svc.Restore(args.Path); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("restored from %s", strings.TrimSpace(args.Path)))}, true
-
-			case "local_doctor":
-				report, err := svc.Doctor()
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				out := report.Summary
-				for _, msg := range report.IntegrityMessages {
-					out += "\n  integrity: " + msg
-				}
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(out)}, true
-
-			case "parity_scorecard":
-				var args parityScorecardArgs
-				if len(params.Arguments) > 0 {
-					if err := json.Unmarshal(params.Arguments, &args); err != nil {
-						return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("invalid arguments: " + err.Error())}, true
-					}
-				}
-				v := parity.ComputeScorecard(args.toSignals())
-				b, err := json.Marshal(v)
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("encode verdict: " + err.Error())}, true
-				}
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
-
-			case "relate":
-				// PR3c: gated by NTCLI_FF_GRAPH=1. Falling through to
-				// "tool not found" when the flag is off keeps the legacy
-				// surface byte-identical for clients that haven't opted in.
-				if !graphFeatureEnabled() {
-					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "tool not found"}}, true
-				}
-				var args localRelateArgs
-				if err := json.Unmarshal(params.Arguments, &args); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
-				}
-				if err := svc.Relate(args.SourceID, args.TargetID, args.RelationType); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("relation %d -> %d (%s)", args.SourceID, args.TargetID, strings.TrimSpace(args.RelationType)))}, true
-
-			case "graph_neighbors":
-				// PR3c: same flag gate as relate. Read path mirrors the
-				// write path so callers don't see asymmetric availability.
-				if !graphFeatureEnabled() {
-					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "tool not found"}}, true
-				}
-				var args graphNeighborsArgs
-				if len(params.Arguments) > 0 {
-					if err := json.Unmarshal(params.Arguments, &args); err != nil {
-						return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
-					}
-				}
-				rows, err := svc.Neighbors(args.ID, parseRelationDirection(args.Direction))
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				b, err := json.Marshal(memoryRelationsPayload(rows))
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("encode neighbors: " + err.Error())}, true
-				}
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
-
-			case "project_probe":
-				if svc.ProjectEng == nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("project engine not available")}, true
-				}
-				var args projectProbeArgs
-				_ = json.Unmarshal(params.Arguments, &args)
-				cwd := strings.TrimSpace(args.CWD)
-				if cwd == "" {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("cwd is required: pass the working directory of the project you want to probe")}, true
-				}
-				res, err := svc.ProjectEng.Probe(cwd)
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				payload := map[string]interface{}{
-					"status":     res.Status,
-					"candidate":  res.Candidate,
-					"confidence": res.Confidence,
-					"reason":     res.Reason,
-				}
-				if res.Status == "ambiguous" && len(res.Candidates) > 0 {
-					names := make([]string, 0, len(res.Candidates))
-					for _, c := range res.Candidates {
-						names = append(names, c.Name)
-					}
-					payload["candidates"] = names
-				}
-				b, _ := json.Marshal(payload)
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
-
-			case "project_confirm":
-				if svc.ProjectEng == nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("project engine not available")}, true
-				}
-				var args projectConfirmArgs
-				if err := json.Unmarshal(params.Arguments, &args); err != nil || strings.TrimSpace(args.Candidate) == "" {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("candidate is required")}, true
-				}
-				if err := svc.ProjectEng.Confirm(strings.TrimSpace(args.Candidate)); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("confirmed project %q", strings.TrimSpace(args.Candidate)))}, true
-
-			case "project_current":
-				if svc.ProjectEng == nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("project engine not available")}, true
-				}
-				p, err := svc.ProjectEng.Current()
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				b, _ := json.Marshal(projectPayload(p))
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
-
-			case "project_list":
-				if svc.ProjectEng == nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("project engine not available")}, true
-				}
-				projects, err := svc.ProjectEng.List()
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				activeID := svc.ActiveProjectID()
-				payload := make([]map[string]interface{}, 0, len(projects))
-				for _, p := range projects {
-					payload = append(payload, projectPayloadWithActive(p, activeID))
-				}
-				b, _ := json.Marshal(payload)
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
-
-			case "project_switch":
-				if svc.ProjectEng == nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("project engine not available")}, true
-				}
-				var args projectSwitchArgs
-				if err := json.Unmarshal(params.Arguments, &args); err != nil || args.ID <= 0 {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("id is required and must be > 0")}, true
-				}
-				// Pre-switch backup per spec task 2.8 / 3.7 contract.
-				_ = svc.Backup(preBackupPathMCP())
-				if err := svc.ProjectEng.Switch(args.ID); err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				svc.SetActiveProject(args.ID)
-				p, err := svc.ProjectEng.Current()
-				if err != nil {
-					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
-				}
-				b, _ := json.Marshal(projectPayload(p))
-				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
-
-			default:
+		case "relate":
+			// PR3c: gated by NTCLI_FF_GRAPH=1. Falling through to
+			// "tool not found" when the flag is off keeps the legacy
+			// surface byte-identical for clients that haven't opted in.
+			if !graphFeatureEnabled() {
 				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "tool not found"}}, true
 			}
-
-		case "ping":
-			if isNotification {
-				return response{}, false
+			var args localRelateArgs
+			if err := json.Unmarshal(params.Arguments, &args); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
 			}
-			return response{JSONRPC: "2.0", ID: req.ID, Result: map[string]string{"pong": "pong"}}, true
+			if err := svc.Relate(args.SourceID, args.TargetID, args.RelationType); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("relation %d -> %d (%s)", args.SourceID, args.TargetID, strings.TrimSpace(args.RelationType)))}, true
+
+		case "graph_neighbors":
+			// PR3c: same flag gate as relate. Read path mirrors the
+			// write path so callers don't see asymmetric availability.
+			if !graphFeatureEnabled() {
+				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "tool not found"}}, true
+			}
+			var args graphNeighborsArgs
+			if len(params.Arguments) > 0 {
+				if err := json.Unmarshal(params.Arguments, &args); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+				}
+			}
+			rows, err := svc.Neighbors(args.ID, parseRelationDirection(args.Direction))
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			b, err := json.Marshal(memoryRelationsPayload(rows))
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("encode neighbors: " + err.Error())}, true
+			}
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
+
+		case "project_probe":
+			if svc.ProjectEng == nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("project engine not available")}, true
+			}
+			var args projectProbeArgs
+			_ = json.Unmarshal(params.Arguments, &args)
+			cwd := strings.TrimSpace(args.CWD)
+			if cwd == "" {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("cwd is required: pass the working directory of the project you want to probe")}, true
+			}
+			res, err := svc.ProjectEng.Probe(cwd)
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			payload := map[string]interface{}{
+				"status":     res.Status,
+				"candidate":  res.Candidate,
+				"confidence": res.Confidence,
+				"reason":     res.Reason,
+			}
+			if res.Status == "ambiguous" && len(res.Candidates) > 0 {
+				names := make([]string, 0, len(res.Candidates))
+				for _, c := range res.Candidates {
+					names = append(names, c.Name)
+				}
+				payload["candidates"] = names
+			}
+			b, _ := json.Marshal(payload)
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
+
+		case "project_confirm":
+			if svc.ProjectEng == nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("project engine not available")}, true
+			}
+			var args projectConfirmArgs
+			if err := json.Unmarshal(params.Arguments, &args); err != nil || strings.TrimSpace(args.Candidate) == "" {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("candidate is required")}, true
+			}
+			if err := svc.ProjectEng.Confirm(strings.TrimSpace(args.Candidate)); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("confirmed project %q", strings.TrimSpace(args.Candidate)))}, true
+
+		case "project_current":
+			if svc.ProjectEng == nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("project engine not available")}, true
+			}
+			p, err := svc.ProjectEng.Current()
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			b, _ := json.Marshal(projectPayload(p))
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
+
+		case "project_list":
+			if svc.ProjectEng == nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("project engine not available")}, true
+			}
+			projects, err := svc.ProjectEng.List()
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			activeID := svc.ActiveProjectID()
+			payload := make([]map[string]interface{}, 0, len(projects))
+			for _, p := range projects {
+				payload = append(payload, projectPayloadWithActive(p, activeID))
+			}
+			b, _ := json.Marshal(payload)
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
+
+		case "project_switch":
+			if svc.ProjectEng == nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("project engine not available")}, true
+			}
+			var args projectSwitchArgs
+			if err := json.Unmarshal(params.Arguments, &args); err != nil || args.ID <= 0 {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("id is required and must be > 0")}, true
+			}
+			// Pre-switch backup per spec task 2.8 / 3.7 contract.
+			_ = svc.Backup(preBackupPathMCP())
+			if err := svc.ProjectEng.Switch(args.ID); err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			svc.SetActiveProject(args.ID)
+			p, err := svc.ProjectEng.Current()
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			b, _ := json.Marshal(projectPayload(p))
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
 
 		default:
-			if isNotification {
-				return response{}, false
-			}
-			return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "method not found"}}, true
+			return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "tool not found"}}, true
 		}
+
+	case "ping":
+		if isNotification {
+			return response{}, false
+		}
+		return response{JSONRPC: "2.0", ID: req.ID, Result: map[string]string{"pong": "pong"}}, true
+
+	default:
+		if isNotification {
+			return response{}, false
+		}
+		return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32601, Message: "method not found"}}, true
+	}
 
 }
 
@@ -917,21 +916,21 @@ func toolError(msg string) map[string]interface{} {
 // both `tools` and `tools/list` JSON-RPC methods to keep them in sync.
 func toolsListResult() map[string]interface{} {
 	result := map[string]interface{}{
-		"tools": []map[string]interface{}{			{
-				"name":        "local_save",
-				"description": "Guarda una nota local en SQLite (local-only; no usa backend externo).",
-				"inputSchema": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"content":   map[string]interface{}{"type": "string"},
-						"title":     map[string]interface{}{"type": "string"},
-						"type":      map[string]interface{}{"type": "string"},
-						"topic_key": map[string]interface{}{"type": "string"},
-						"scope":     map[string]interface{}{"type": "string"},
-					},
-					"required": []string{"content"},
+		"tools": []map[string]interface{}{{
+			"name":        "local_save",
+			"description": "Guarda una nota local en SQLite (local-only; no usa backend externo).",
+			"inputSchema": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"content":   map[string]interface{}{"type": "string"},
+					"title":     map[string]interface{}{"type": "string"},
+					"type":      map[string]interface{}{"type": "string"},
+					"topic_key": map[string]interface{}{"type": "string"},
+					"scope":     map[string]interface{}{"type": "string"},
 				},
+				"required": []string{"content"},
 			},
+		},
 			{
 				"name":        "local_recall",
 				"description": "Busca notas locales por texto en SQLite (local-only; no consulta backend externo). Acepta filtros opcionales por type y rango de fechas (since/until).",
@@ -1360,6 +1359,7 @@ func resourcesReadResult(rawParams json.RawMessage, svc *app.Service) interface{
 		},
 	}
 }
+
 // Mirrors project_runner.go's preBackupPath convention.
 func preBackupPathMCP() string {
 	dir := os.Getenv("HOME")
