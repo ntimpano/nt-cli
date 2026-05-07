@@ -108,6 +108,10 @@ type localSessionArgs struct {
 	Summary   string `json:"summary,omitempty"`
 }
 
+type localRecordObservationArgs struct {
+	Marker string `json:"marker"`
+}
+
 type localImportArgs struct {
 	Path   string `json:"path"`
 	DryRun bool   `json:"dry_run,omitempty"`
@@ -576,6 +580,17 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				}
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("session summary %s", strings.TrimSpace(args.SessionID)))}, true
 
+			case "ntcli_local_record_observation":
+				var args localRecordObservationArgs
+				if err := json.Unmarshal(params.Arguments, &args); err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+				}
+				id, err := svc.RecordObservationFromMarker(args.Marker)
+				if err != nil {
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("invalid marker: %v", err))}, true
+				}
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("recorded observation #%d", id))}, true
+
 			case "local_import":
 				var args localImportArgs
 				if err := json.Unmarshal(params.Arguments, &args); err != nil {
@@ -1019,6 +1034,17 @@ func toolsListResult() map[string]interface{} {
 						"summary":    map[string]interface{}{"type": "string"},
 					},
 					"required": []string{"session_id", "summary"},
+				},
+			},
+			{
+				"name":        "ntcli_local_record_observation",
+				"description": "Registra un marcador conductual en SQLite (local-only; no afecta backend externo). Formato: [BEHAVIORAL_OBSERVATION: category=<cat>, field=<field>, value=<value>, confidence=<0-100>]",
+				"inputSchema": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"marker": map[string]interface{}{"type": "string"},
+					},
+					"required": []string{"marker"},
 				},
 			},
 			{
