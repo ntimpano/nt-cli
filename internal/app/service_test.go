@@ -13,23 +13,29 @@ type fakeStore struct {
 	getCalls    int
 	updateCalls int
 	saveCalls   int
+	listCalls   int
 
 	getResult    MemoryItem
 	getErr       error
 	updateResult bool
 	updateErr    error
+	listResult   []MemoryItem
+	listErr      error
 
 	lastUpdateID      int64
 	lastUpdateContent string
 	lastUpdateAt      time.Time
 }
 
-func (f *fakeStore) Init() error                                 { return nil }
-func (f *fakeStore) Save(c string, t time.Time) (int64, error)   { f.saveCalls++; return 1, nil }
+func (f *fakeStore) Init() error                                  { return nil }
+func (f *fakeStore) Save(c string, t time.Time) (int64, error)    { f.saveCalls++; return 1, nil }
 func (f *fakeStore) Recall(q string, l int) ([]MemoryItem, error) { return nil, nil }
-func (f *fakeStore) List(l int) ([]MemoryItem, error)            { return nil, nil }
-func (f *fakeStore) Delete(id int64) (bool, error)               { return true, nil }
-func (f *fakeStore) Close() error                                { return nil }
+func (f *fakeStore) List(l int) ([]MemoryItem, error) {
+	f.listCalls++
+	return f.listResult, f.listErr
+}
+func (f *fakeStore) Delete(id int64) (bool, error) { return true, nil }
+func (f *fakeStore) Close() error                  { return nil }
 
 func (f *fakeStore) Get(id int64) (MemoryItem, error) {
 	f.getCalls++
@@ -211,5 +217,21 @@ func TestServiceUpdate_NotFoundReturnsFalse(t *testing.T) {
 	}
 	if ok {
 		t.Fatalf("expected ok=false when store reports no rows affected")
+	}
+}
+
+func TestServiceList_GlobalFallbackWhenNoActiveProject(t *testing.T) {
+	fake := &fakeStore{listResult: []MemoryItem{{ID: 1, Content: "global"}}}
+	svc := NewService(fake)
+
+	items, err := svc.List(5)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(items) != 1 || items[0].Content != "global" {
+		t.Fatalf("unexpected list result: %+v", items)
+	}
+	if fake.listCalls != 1 {
+		t.Fatalf("expected fallback to Store.List exactly once, got %d", fake.listCalls)
 	}
 }
