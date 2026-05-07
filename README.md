@@ -16,6 +16,18 @@ Local-first CLI de memoria personal en Go + SQLite, con modo MCP.
 curl -fsSL https://raw.githubusercontent.com/ntimpano/nt-cli/main/scripts/install.sh | bash
 ```
 
+### Windows (amd64)
+
+```powershell
+powershell -ExecutionPolicy Bypass -Command "& { iwr https://raw.githubusercontent.com/ntimpano/nt-cli/main/scripts/install.ps1 | iex }"
+```
+
+Requiere OpenCode (ver [Prerequisites](#prerequisites)).
+
+El instalador de Windows instala `nt-cli.exe` en `%LOCALAPPDATA%\nt-cli` y mergea agentes `nt-*` en tu configuración de OpenCode (`%APPDATA%\opencode\opencode.json` o `%USERPROFILE%\.config\opencode\opencode.json`).
+
+> Nota sobre Execution Policy: el comando usa `-ExecutionPolicy Bypass` para esta ejecución del instalador.
+
 Requires: `curl`, `jq`.
 
 Installs `nt-cli` to `~/.local/bin` and merges `nt-*` agents into `~/.config/opencode/opencode.json`.
