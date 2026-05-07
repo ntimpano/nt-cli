@@ -327,6 +327,17 @@ func (s *SQLiteStore) Init() error {
 	// Backfill: ensure a "default" project exists, then map every legacy
 	// row to it. INSERT OR IGNORE keeps this idempotent across re-runs
 	// (the UNIQUE constraint on name is the dedupe key).
+	//
+	// Rollback SQL (operational, pre-UNIQUE-hardening):
+	//   UPDATE memory_items
+	//   SET project_id = NULL
+	//   WHERE project_id = (SELECT id FROM projects WHERE name = 'default');
+	//
+	//   DELETE FROM active_project WHERE id = 1;
+	//   DELETE FROM projects WHERE name = 'default';
+	//
+	// In practice, restore from the pre-migration snapshot is preferred for
+	// full reversibility because it guarantees exact data restoration.
 	nowStamp := time.Now().UTC().Format(time.RFC3339)
 	if _, err := tx.Exec(
 		`INSERT OR IGNORE INTO projects(name, root_path, fingerprint, created_at)
@@ -542,8 +553,8 @@ func (s *SQLiteStore) Save(content string, createdAt time.Time) (int64, error) {
 
 // SaveWithMeta persists a row with optional structured metadata. When
 // req.TopicKey is non-empty the call performs an application-level upsert:
-// the latest matching (scope, topic_key) row is UPDATEd in place; otherwise
-// a new row is INSERTed. The application-level path was chosen over a unique
+// the latest matching (scope, topic_key, project_id) row is UPDATEd in place;
+// otherwise a new row is INSERTed. The application-level path was chosen over a unique
 // DB constraint to keep future history/versioning flexibility open per
 // design.md §FTS+Topic strategy.
 func (s *SQLiteStore) SaveWithMeta(req app.SaveRequest) (int64, error) {
@@ -553,10 +564,12 @@ func (s *SQLiteStore) SaveWithMeta(req app.SaveRequest) (int64, error) {
 		var existingID int64
 		err := s.db.QueryRow(
 			`SELECT id FROM memory_items
-			 WHERE topic_key = ? AND COALESCE(scope, '') = COALESCE(?, '')
+			 WHERE topic_key = ?
+			   AND COALESCE(scope, '') = COALESCE(?, '')
+			   AND COALESCE(project_id, 0) = COALESCE(?, 0)
 			 ORDER BY datetime(updated_at) DESC, id DESC
 			 LIMIT 1`,
-			req.TopicKey, req.Scope,
+			req.TopicKey, req.Scope, req.ProjectID,
 		).Scan(&existingID)
 		if err == nil {
 			if _, err := s.db.Exec(
