@@ -28,7 +28,11 @@ import (
 //
 //	nullable `project_id` column on memory_items with backfill to a
 //	`default` project. Enables host-mediated project autoswitch.
-const CurrentSchemaVersion = 5
+//
+// v6: behavioral learning — `behavioral_observations` table + indexes.
+const CurrentSchemaVersion = 6
+
+var ErrNoActiveSession = errors.New("no active session")
 
 type SQLiteStore struct {
 	db        *sql.DB
@@ -352,6 +356,30 @@ func (s *SQLiteStore) Init() error {
 		defaultID, nowStamp,
 	); err != nil {
 		return fmt.Errorf("seed active_project: %w", err)
+	}
+
+	// M6 — behavioral learning observation capture table.
+	if _, err := tx.Exec(`
+		CREATE TABLE IF NOT EXISTS behavioral_observations (
+			id               INTEGER PRIMARY KEY AUTOINCREMENT,
+			category         TEXT    NOT NULL,
+			field            TEXT    NOT NULL,
+			value            TEXT    NOT NULL,
+			confidence       INTEGER NOT NULL CHECK (confidence BETWEEN 0 AND 100),
+			occurrence_count INTEGER NOT NULL DEFAULT 1,
+			status           TEXT    NOT NULL DEFAULT 'observed'
+			                 CHECK (status IN ('observed','candidate','dismissed')),
+			last_seen        DATETIME NOT NULL,
+			created_at       DATETIME NOT NULL
+		);
+	`); err != nil {
+		return fmt.Errorf("create behavioral_observations: %w", err)
+	}
+	if _, err := tx.Exec(
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_behavioral_obs_unique
+		 ON behavioral_observations(category, field, value)`,
+	); err != nil {
+		return fmt.Errorf("create behavioral_observations unique index: %w", err)
 	}
 
 	// M2 — FTS5 ranked recall. The virtual table mirrors (content, title)
@@ -1038,6 +1066,157 @@ func (s *SQLiteStore) SessionEvents(id string) ([]app.SessionEvent, error) {
 	return out, rows.Err()
 }
 
+func (s *SQLiteStore) ActiveSessionID() (string, error) {
+	var id string
+	err := s.db.QueryRow(
+		`SELECT st.session_id
+		 FROM sessions st
+		 WHERE st.kind = 'start'
+		   AND NOT EXISTS (
+			   SELECT 1
+			   FROM sessions en
+			   WHERE en.session_id = st.session_id AND en.kind = 'end'
+		   )
+		 ORDER BY datetime(st.created_at) DESC, st.id DESC
+		 LIMIT 1`,
+	).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNoActiveSession
+	}
+	if err != nil {
+		return "", err
+	}
+	return id, nil
+}
+
+func (s *SQLiteStore) RecordObservation(category, field, value string, confidence int, now time.Time) (int64, error) {
+	stamp := now.UTC().Format(time.RFC3339)
+	res, err := s.db.Exec(
+		`INSERT OR IGNORE INTO behavioral_observations
+		 (category, field, value, confidence, occurrence_count, status, last_seen, created_at)
+		 VALUES(?, ?, ?, ?, 1, 'observed', ?, ?)`,
+		category, field, value, confidence, stamp, stamp,
+	)
+	if err != nil {
+		return 0, err
+	}
+	if affected, _ := res.RowsAffected(); affected == 0 {
+		if _, err := s.db.Exec(
+			`UPDATE behavioral_observations
+			 SET occurrence_count = occurrence_count + 1,
+			     last_seen = ?
+			 WHERE category = ? AND field = ? AND value = ?`,
+			stamp, category, field, value,
+		); err != nil {
+			return 0, err
+		}
+	}
+	if _, err := s.db.Exec(
+		`UPDATE behavioral_observations
+		 SET status = 'candidate'
+		 WHERE category = ? AND field = ? AND value = ?
+		   AND occurrence_count >= 3 AND confidence > 60`,
+		category, field, value,
+	); err != nil {
+		return 0, err
+	}
+	var id int64
+	if err := s.db.QueryRow(
+		`SELECT id FROM behavioral_observations
+		 WHERE category = ? AND field = ? AND value = ?`,
+		category, field, value,
+	).Scan(&id); err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+func (s *SQLiteStore) ListObservations(includeStatuses []string) ([]BehavioralObservation, error) {
+	if len(includeStatuses) == 0 {
+		return []BehavioralObservation{}, nil
+	}
+	placeholders := make([]string, 0, len(includeStatuses))
+	args := make([]any, 0, len(includeStatuses))
+	for _, st := range includeStatuses {
+		placeholders = append(placeholders, "?")
+		args = append(args, st)
+	}
+	q := `SELECT id, category, field, value, confidence, occurrence_count, status, last_seen, created_at
+		FROM behavioral_observations
+		WHERE status IN (` + strings.Join(placeholders, ",") + `)
+		ORDER BY datetime(last_seen) DESC, id DESC`
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []BehavioralObservation
+	for rows.Next() {
+		obs, err := scanBehavioralObservation(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, obs)
+	}
+	return out, rows.Err()
+}
+
+func (s *SQLiteStore) GetObservation(id int64) (*BehavioralObservation, error) {
+	row := s.db.QueryRow(
+		`SELECT id, category, field, value, confidence, occurrence_count, status, last_seen, created_at
+		 FROM behavioral_observations WHERE id = ?`,
+		id,
+	)
+	obs, err := scanBehavioralObservation(row)
+	if err != nil {
+		return nil, err
+	}
+	return &obs, nil
+}
+
+func (s *SQLiteStore) DismissObservation(id int64) error {
+	_, err := s.db.Exec(
+		`UPDATE behavioral_observations SET status = 'dismissed' WHERE id = ?`,
+		id,
+	)
+	return err
+}
+
+func (s *SQLiteStore) Candidates() ([]BehavioralObservation, error) {
+	return s.ListObservations([]string{"candidate"})
+}
+
+func scanBehavioralObservation(scanner interface{ Scan(dest ...any) error }) (BehavioralObservation, error) {
+	var (
+		obs                       BehavioralObservation
+		lastSeenRaw, createdAtRaw string
+	)
+	if err := scanner.Scan(
+		&obs.ID,
+		&obs.Category,
+		&obs.Field,
+		&obs.Value,
+		&obs.Confidence,
+		&obs.OccurrenceCount,
+		&obs.Status,
+		&lastSeenRaw,
+		&createdAtRaw,
+	); err != nil {
+		return BehavioralObservation{}, err
+	}
+	lastSeen, err := time.Parse(time.RFC3339, lastSeenRaw)
+	if err != nil {
+		return BehavioralObservation{}, fmt.Errorf("invalid behavioral_observations.last_seen: %w", err)
+	}
+	createdAt, err := time.Parse(time.RFC3339, createdAtRaw)
+	if err != nil {
+		return BehavioralObservation{}, fmt.Errorf("invalid behavioral_observations.created_at: %w", err)
+	}
+	obs.LastSeen = lastSeen
+	obs.CreatedAt = createdAt
+	return obs, nil
+}
+
 // ImportRecords inserts a batch of records, deduping each row on the
 // composite key `(topic_key, sha256(content))`. Rows that match an
 // existing key are counted as Skipped and not written. Empty content
@@ -1152,8 +1331,8 @@ func (s *SQLiteStore) Backup(dst string) error {
 // Errors:
 //   - src missing      -> os.Stat error before mutation
 //   - copy failure     -> live DB is restored from a temp side-copy taken
-//                         before the swap, so a half-failed restore does
-//                         not leave the user with no DB at all
+//     before the swap, so a half-failed restore does
+//     not leave the user with no DB at all
 func (s *SQLiteStore) Restore(src string) error {
 	if strings.TrimSpace(src) == "" {
 		return errors.New("restore source is empty")

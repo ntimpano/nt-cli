@@ -67,6 +67,31 @@ type SessionStore interface {
 	SessionSummary(id, summary string, at time.Time) error
 	SessionEnd(id string, at time.Time) error
 	SessionEvents(id string) ([]SessionEvent, error)
+	ActiveSessionID() (string, error)
+}
+
+// BehavioralObservation is a persisted candidate extracted from
+// `[BEHAVIORAL_OBSERVATION: ...]` markers.
+type BehavioralObservation struct {
+	ID              int64
+	Category        string
+	Field           string
+	Value           string
+	Confidence      int
+	OccurrenceCount int
+	Status          string
+	LastSeen        time.Time
+	CreatedAt       time.Time
+}
+
+// BehavioralStore extends Store with behavioral-learning operations.
+// Optional capability; service methods type-assert defensively.
+type BehavioralStore interface {
+	RecordObservation(category, field, value string, confidence int, now time.Time) (int64, error)
+	ListObservations(includeStatuses []string) ([]BehavioralObservation, error)
+	GetObservation(id int64) (*BehavioralObservation, error)
+	DismissObservation(id int64) error
+	Candidates() ([]BehavioralObservation, error)
 }
 
 // ImportRecord is a single row queued for the M3 import bridge. Empty
@@ -607,6 +632,37 @@ func (s *Service) SessionEvents(id string) ([]SessionEvent, error) {
 		return nil, errors.New("store does not support session operations")
 	}
 	return sess.SessionEvents(clean)
+}
+
+// SessionStore exposes the optional session-capable store adapter.
+func (s *Service) SessionStore() SessionStore {
+	sess, ok := s.repo.(SessionStore)
+	if !ok {
+		return nil
+	}
+	return sess
+}
+
+// BehavioralStore exposes the optional behavioral-capable store adapter.
+func (s *Service) BehavioralStore() BehavioralStore {
+	bs, ok := s.repo.(BehavioralStore)
+	if !ok {
+		return nil
+	}
+	return bs
+}
+
+// RecordObservationFromMarker parses a behavioral marker and persists it.
+func (s *Service) RecordObservationFromMarker(marker string) (int64, error) {
+	category, field, value, confidence, err := parseObservationMarker(marker)
+	if err != nil {
+		return 0, err
+	}
+	bs := s.BehavioralStore()
+	if bs == nil {
+		return 0, errors.New("store does not support behavioral operations")
+	}
+	return bs.RecordObservation(category, field, value, confidence, time.Now().UTC())
 }
 
 func (s *Service) validateSessionID(id string) (string, error) {
