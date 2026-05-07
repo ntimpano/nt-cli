@@ -65,16 +65,20 @@ else
   build_target windows amd64
 fi
 
+_artifacts=()
+for f in "${DIST_DIR}"/nt-cli_*.tar.gz "${DIST_DIR}"/nt-cli_*.zip; do
+  [[ -f "$f" ]] && _artifacts+=("$(basename "$f")")
+done
+
+if [[ ${#_artifacts[@]} -eq 0 ]]; then
+  echo "error: no release artifacts found in ${DIST_DIR}" >&2
+  exit 1
+fi
+
 if command -v sha256sum >/dev/null 2>&1; then
-  (
-    cd "${DIST_DIR}"
-    sha256sum nt-cli_*.tar.gz nt-cli_*.zip 2>/dev/null | sort > sha256sums.txt
-  )
+  (cd "${DIST_DIR}" && sha256sum "${_artifacts[@]}" | sort > sha256sums.txt)
 elif command -v shasum >/dev/null 2>&1; then
-  (
-    cd "${DIST_DIR}"
-    shasum -a 256 nt-cli_*.tar.gz nt-cli_*.zip 2>/dev/null | sort > sha256sums.txt
-  )
+  (cd "${DIST_DIR}" && shasum -a 256 "${_artifacts[@]}" | sort > sha256sums.txt)
 else
   echo "error: neither sha256sum nor shasum is available" >&2
   exit 1
