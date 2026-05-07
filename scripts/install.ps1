@@ -80,6 +80,14 @@ try {
   }
   Copy-Item -Path $exeSource -Destination (Join-Path $installDir 'nt-cli.exe') -Force
 
+  # Copy prompts directory
+  $promptsSrc = Join-Path $extractDir 'prompts'
+  if (Test-Path $promptsSrc) {
+    $promptsDst = Join-Path $installDir 'prompts'
+    if (Test-Path $promptsDst) { Remove-Item -Path $promptsDst -Recurse -Force }
+    Copy-Item -Path $promptsSrc -Destination $promptsDst -Recurse -Force
+  }
+
   $bundlePath = Join-Path $extractDir '.nt-cli-agents.json'
   if (Test-Path $bundlePath) {
     $timestamp = Get-Date -Format 'yyyyMMddTHHmmssZ'
@@ -99,7 +107,15 @@ try {
     }
 
     $jsonTemp = Join-Path $tmpRoot 'opencode.json.tmp'
-    $existing | ConvertTo-Json -Depth 20 | Set-Content -Path $jsonTemp -Encoding utf8
+    $jsonContent = $existing | ConvertTo-Json -Depth 20
+
+    # Rewrite prompt paths to local Windows install dir
+    # Replace absolute Linux paths: {file:/opt/nt-cli/prompts/...} and {file:./prompts/...}
+    $promptsDir = (Join-Path $installDir 'prompts').Replace('\', '/')
+    $jsonContent = $jsonContent -replace '\{file:/opt/nt-cli/prompts/', "{file:$promptsDir/"
+    $jsonContent = $jsonContent -replace '\{file:\./prompts/', "{file:$promptsDir/"
+
+    $jsonContent | Set-Content -Path $jsonTemp -Encoding utf8
     Move-Item -Path $jsonTemp -Destination $openCodeJsonPath -Force
   }
 
