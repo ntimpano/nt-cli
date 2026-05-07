@@ -14,6 +14,34 @@ import (
 	"nt-cli/internal/parity"
 )
 
+type summaryNote struct {
+	ID        int    `json:"id"`
+	CreatedAt string `json:"created_at"`
+	Type      string `json:"type"`
+	Title     string `json:"title"`
+	Content   string `json:"content"`
+}
+
+type summaryMemory struct {
+	SchemaVersion int  `json:"schema_version"`
+	FTSHealthy    bool `json:"fts_healthy"`
+	IntegrityOK   bool `json:"integrity_ok"`
+	ItemsCount    int  `json:"items_count"`
+}
+
+type summaryProject struct {
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	RootPath string `json:"root_path"`
+}
+
+type summaryView struct {
+	Project     *summaryProject `json:"project"`
+	Memory      *summaryMemory  `json:"memory"`
+	RecentNotes []summaryNote   `json:"recent_notes"`
+	Topics      []string        `json:"topics"`
+}
+
 // RunCLIWithStdin is the full-featured entry point that also accepts a stdin
 // reader so the autoswitch policy can be injected for testing. In production,
 // main.go calls this with os.Stdin. RunCLI delegates here with a nil stdin
@@ -23,7 +51,7 @@ func RunCLIWithStdin(svc *Service, args []string, stdin io.Reader, stdout, stder
 		policy := NewDefaultAutoswitchPolicy(stdin, stdout)
 		ApplyAutoswitch(svc, policy)
 	}
-	return RunCLI(svc, args, stdout, stderr)
+	return runCLIWithInput(svc, args, stdin, stdout, stderr)
 }
 
 // RunCLI dispatches an nt-cli command using the provided Service and writes
@@ -37,6 +65,10 @@ func RunCLIWithStdin(svc *Service, args []string, stdin io.Reader, stdout, stder
 // The caller is responsible for constructing the Service (and the underlying
 // store / DB), so RunCLI itself never touches the filesystem.
 func RunCLI(svc *Service, args []string, stdout, stderr io.Writer) int {
+	return runCLIWithInput(svc, args, os.Stdin, stdout, stderr)
+}
+
+func runCLIWithInput(svc *Service, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
 		printUsage(stdout)
 		return 1
@@ -49,7 +81,7 @@ func RunCLI(svc *Service, args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		fmt.Fprintln(stdout, "initialized")
-		return 0
+		return RunInitProfile(args[1:], stdin, stdout, stderr)
 
 	case "save":
 		if len(args) < 2 {
@@ -205,16 +237,28 @@ func RunCLI(svc *Service, args []string, stdout, stderr io.Writer) int {
 		// by scope. Defaults: n=10, no scope filter.
 		n := 10
 		scope := ""
+		summaryMode := false
+		jsonMode := false
 		for i := 1; i < len(args); i++ {
 			a := args[i]
 			if !strings.HasPrefix(a, "--") {
 				fmt.Fprintf(stderr, "unexpected positional arg %q (context only takes flags)\n", a)
 				return 1
 			}
+			if a == "--summary" {
+				summaryMode = true
+				continue
+			}
+			if a == "--json" {
+				jsonMode = true
+				continue
+			}
 			key, val, ok := strings.Cut(strings.TrimPrefix(a, "--"), "=")
 			if !ok {
-				fmt.Fprintf(stderr, "invalid flag %q (expected --key=value)\n", a)
-				return 1
+				// Legacy context parser is strict for `--key=value` flags, but
+				// summary/json are accepted as bare booleans above. Any other bare
+				// flag is ignored to keep this path permissive for future toggles.
+				continue
 			}
 			switch key {
 			case "n":
@@ -226,10 +270,31 @@ func RunCLI(svc *Service, args []string, stdout, stderr io.Writer) int {
 				n = parsed
 			case "scope":
 				scope = val
+			case "summary":
+				parsed, err := strconv.ParseBool(strings.TrimSpace(val))
+				if err != nil {
+					fmt.Fprintf(stderr, "invalid --summary: %q (expected true or false)\n", val)
+					return 1
+				}
+				summaryMode = parsed
+			case "json":
+				parsed, err := strconv.ParseBool(strings.TrimSpace(val))
+				if err != nil {
+					fmt.Fprintf(stderr, "invalid --json: %q (expected true or false)\n", val)
+					return 1
+				}
+				jsonMode = parsed
 			default:
 				fmt.Fprintf(stderr, "unknown flag --%s\n", key)
 				return 1
 			}
+		}
+		if summaryMode {
+			if err := runContextSummary(svc, stdout, jsonMode); err != nil {
+				fmt.Fprintf(stderr, "context failed: %v\n", err)
+				return 1
+			}
+			return 0
 		}
 		items, err := svc.Context(n, scope)
 		if err != nil {
@@ -400,6 +465,123 @@ func RunCLI(svc *Service, args []string, stdout, stderr io.Writer) int {
 		printUsage(stdout)
 		return 1
 	}
+}
+
+func runContextSummary(svc *Service, w io.Writer, jsonMode bool) error {
+	v := summaryView{
+		RecentNotes: []summaryNote{},
+		Topics:      []string{},
+	}
+
+	if svc != nil && svc.ProjectEng != nil {
+		p, err := svc.ProjectEng.Current()
+		if err == nil {
+			v.Project = &summaryProject{
+				ID:       int(p.ID),
+				Name:     p.Name,
+				RootPath: p.RootPath,
+			}
+		} else if !errors.Is(err, ErrNoActiveProject) {
+			return err
+		}
+	}
+
+	if svc != nil {
+		report, err := svc.Doctor()
+		if err == nil {
+			v.Memory = &summaryMemory{
+				SchemaVersion: report.SchemaVersion,
+				FTSHealthy:    report.FTSHealthy,
+				IntegrityOK:   report.IntegrityOK,
+				ItemsCount:    report.MemoryItemsCount,
+			}
+		}
+	}
+
+	notes, err := svc.Context(5, "")
+	if err != nil {
+		return err
+	}
+	seenTopics := map[string]struct{}{}
+	for _, it := range notes {
+		v.RecentNotes = append(v.RecentNotes, summaryNote{
+			ID:        int(it.ID),
+			CreatedAt: it.CreatedAt.Format("2006-01-02 15:04"),
+			Type:      it.Type,
+			Title:     it.Title,
+			Content:   it.Content,
+		})
+		topic := strings.TrimSpace(it.TopicKey)
+		if topic == "" {
+			continue
+		}
+		if _, ok := seenTopics[topic]; ok {
+			continue
+		}
+		seenTopics[topic] = struct{}{}
+		v.Topics = append(v.Topics, topic)
+	}
+
+	if jsonMode {
+		return printSummaryJSON(w, v)
+	}
+	printSummaryHuman(w, v)
+	return nil
+}
+
+func printSummaryHuman(w io.Writer, v summaryView) {
+	fmt.Fprintln(w, "PROJECT")
+	if v.Project == nil {
+		fmt.Fprintln(w, "  none")
+	} else {
+		fmt.Fprintf(w, "  %s (%s)\n", v.Project.Name, v.Project.RootPath)
+	}
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "MEMORY HEALTH")
+	if v.Memory == nil {
+		fmt.Fprintln(w, "  none")
+	} else {
+		fmt.Fprintf(w, "  schema_version: %d\n", v.Memory.SchemaVersion)
+		fmt.Fprintf(w, "  fts: %s\n", summaryOK(v.Memory.FTSHealthy))
+		fmt.Fprintf(w, "  integrity: %s\n", summaryOK(v.Memory.IntegrityOK))
+		fmt.Fprintf(w, "  items: %d\n", v.Memory.ItemsCount)
+	}
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "RECENT NOTES (last 5)")
+	if len(v.RecentNotes) == 0 {
+		fmt.Fprintln(w, "  no notes found")
+	} else {
+		for _, n := range v.RecentNotes {
+			fmt.Fprintf(w, "  [%d] %s  %s\n", n.ID, n.CreatedAt, n.Content)
+		}
+	}
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "TOPICS")
+	if len(v.Topics) == 0 {
+		fmt.Fprint(w, "  none")
+		return
+	}
+	for i, topic := range v.Topics {
+		if i == len(v.Topics)-1 {
+			fmt.Fprint(w, "  "+topic)
+			continue
+		}
+		fmt.Fprintln(w, "  "+topic)
+	}
+}
+
+func printSummaryJSON(w io.Writer, v summaryView) error {
+	return json.NewEncoder(w).Encode(v)
+}
+
+func summaryOK(ok bool) string {
+	if ok {
+		return "ok"
+	}
+	return "FAIL"
 }
 
 // runSession dispatches `nt-cli session <start|end|summary> <id> [text...]`.

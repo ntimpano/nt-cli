@@ -9,6 +9,9 @@ import (
 	"nt-cli/internal/store"
 )
 
+// version is set at build time via -ldflags "-X main.version=<tag>".
+var version = "dev"
+
 func main() {
 	if len(os.Args) < 2 {
 		os.Exit(app.RunCLI(nil, nil, os.Stdout, os.Stderr))
@@ -47,6 +50,9 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("initialized at %s\n", dbPath)
+		if code := app.RunInitProfile(os.Args[2:], os.Stdin, os.Stdout, os.Stderr); code != 0 {
+			os.Exit(code)
+		}
 		return
 	}
 
