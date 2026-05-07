@@ -85,16 +85,16 @@ try {
     $timestamp = Get-Date -Format 'yyyyMMddTHHmmssZ'
     Copy-Item -Path $openCodeJsonPath -Destination "$openCodeJsonPath.bak.$timestamp" -Force
 
-    $existing = Get-Content -Path $openCodeJsonPath -Raw | ConvertFrom-Json -AsHashtable
-    $bundle = Get-Content -Path $bundlePath -Raw | ConvertFrom-Json -AsHashtable
+    $existing = Get-Content -Path $openCodeJsonPath -Raw | ConvertFrom-Json
+    $bundle = Get-Content -Path $bundlePath -Raw | ConvertFrom-Json
 
-    if (-not $existing.ContainsKey('agent') -or $null -eq $existing.agent) {
-      $existing.agent = @{}
+    if ($null -eq $existing.agent) {
+      $existing | Add-Member -MemberType NoteProperty -Name 'agent' -Value (New-Object PSObject) -Force
     }
 
-    foreach ($key in $bundle.Keys) {
-      if ($key -like 'nt-*') {
-        $existing.agent[$key] = $bundle[$key]
+    foreach ($prop in $bundle.PSObject.Properties) {
+      if ($prop.Name -like 'nt-*') {
+        $existing.agent | Add-Member -MemberType NoteProperty -Name $prop.Name -Value $prop.Value -Force
       }
     }
 
