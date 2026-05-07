@@ -145,6 +145,11 @@ func runInstall(t *testing.T, homeDir string, env []string) (string, error) {
 	return string(out), err
 }
 
+func ensureOpenCodeDir(t *testing.T, homeDir string) {
+	t.Helper()
+	must(t, os.MkdirAll(filepath.Join(homeDir, ".config", "opencode"), 0755))
+}
+
 // TestInstall_UnsupportedArch verifies the installer exits non-zero and prints
 // a helpful message listing supported architectures when the arch is unknown.
 func TestInstall_UnsupportedArch(t *testing.T) {
@@ -308,6 +313,7 @@ func TestInstall_BinaryPlacement(t *testing.T) {
 	buildFakeRelease(t, fileDir, nil)
 
 	homeDir := t.TempDir()
+	ensureOpenCodeDir(t, homeDir)
 	env, _ := fakeCurlEnv(t, fileDir)
 	out, err := runInstall(t, homeDir, env)
 	if err != nil {
@@ -334,6 +340,7 @@ func TestInstall_PathHint(t *testing.T) {
 	buildFakeRelease(t, fileDir, nil)
 
 	homeDir := t.TempDir()
+	ensureOpenCodeDir(t, homeDir)
 	env, fakeBinDir := fakeCurlEnv(t, fileDir)
 	// Override PATH to not include ~/.local/bin.
 	for i, e := range env {
@@ -455,6 +462,7 @@ func TestInstall_IdempotentReinstall(t *testing.T) {
 	buildFakeRelease(t, fileDir, nil)
 
 	homeDir := t.TempDir()
+	ensureOpenCodeDir(t, homeDir)
 	env, _ := fakeCurlEnv(t, fileDir)
 
 	// First install.
@@ -481,6 +489,7 @@ func TestInstall_AgentsMdCopiedWhenAbsent(t *testing.T) {
 	buildFakeRelease(t, fileDir, map[string][]byte{"AGENTS.md": agentsContent})
 
 	homeDir := t.TempDir()
+	ensureOpenCodeDir(t, homeDir)
 	env, _ := fakeCurlEnv(t, fileDir)
 	out, err := runInstall(t, homeDir, env)
 	if err != nil {
@@ -580,6 +589,7 @@ func TestInstall_SuccessMessage(t *testing.T) {
 	buildFakeRelease(t, fileDir, nil)
 
 	homeDir := t.TempDir()
+	ensureOpenCodeDir(t, homeDir)
 	env, _ := fakeCurlEnv(t, fileDir)
 	out, err := runInstall(t, homeDir, env)
 	if err != nil {

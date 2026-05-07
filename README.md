@@ -2,6 +2,12 @@
 
 Local-first CLI de memoria personal en Go + SQLite, con modo MCP.
 
+## Prerequisites
+
+- **OpenCode (required)**: https://opencode.ai  
+  nt-cli corre como servidor MCP dentro de OpenCode.
+- **Go 1.22+** (solo para la vía `go install`)
+
 ## Quick Start
 
 ### Install

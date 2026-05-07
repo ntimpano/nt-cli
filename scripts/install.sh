@@ -14,6 +14,11 @@ esac
 [[ "$OS" == "linux" || "$OS" == "darwin" ]] \
   || die "unsupported os: $OS (supported: linux, darwin)"
 
+# OpenCode prerequisite check
+if [[ ! -d "$HOME/.config/opencode" ]]; then
+  die "OpenCode is required. Install from https://opencode.ai"
+fi
+
 # 2. Dependency checks (fail fast)
 command -v jq >/dev/null || die "jq required: brew install jq | apt install jq | dnf install jq"
 command -v curl >/dev/null || die "curl required"

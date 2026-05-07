@@ -7,6 +7,7 @@ Este archivo define el comportamiento global recomendado para agentes que trabaj
 - `nt-cli` es el cerebro persistente del usuario.
 - Toda memoria operativa debe vivir en `nt-cli` como fuente de verdad.
 - Si existe compatibilidad con otros backends, se usan solo como fallback explícito.
+- Requiere OpenCode (https://opencode.ai) como host MCP.
 
 ## 2) Memoria y persistencia
 
