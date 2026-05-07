@@ -19,7 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/ntimpano/nt-cli/main/scripts/instal
 ### Windows (amd64)
 
 ```powershell
-powershell -ExecutionPolicy Bypass -Command "& { iwr https://raw.githubusercontent.com/ntimpano/nt-cli/main/scripts/install.ps1 | iex }"
+powershell -ExecutionPolicy Bypass -Command "& { iwr https://raw.githubusercontent.com/ntimpano/nt-cli/main/scripts/install.ps1 -UseBasicParsing | iex }"
 ```
 
 Requiere OpenCode (ver [Prerequisites](#prerequisites)).
