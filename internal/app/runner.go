@@ -408,6 +408,9 @@ func runCLIWithInput(svc *Service, args []string, stdin io.Reader, stdout, stder
 	case "session":
 		return runSession(svc, args[1:], stdout, stderr)
 
+	case "behavior":
+		return runBehavior(svc, args[1:], stdout, stderr)
+
 	case "import":
 		return runImport(svc, args[1:], stdout, stderr)
 
@@ -655,11 +658,56 @@ func runSession(svc *Service, args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stdout, "session started %s\n", id)
 		return 0
 	case "end":
-		if len(args) < 2 {
-			fmt.Fprintln(stderr, "usage: nt-cli session end <id>")
+		if len(args) > 3 {
+			fmt.Fprintln(stderr, "usage: nt-cli session end [id] [--summary=\"text\"]")
 			return 1
 		}
-		id := strings.TrimSpace(args[1])
+		id := ""
+		summary := ""
+		for i := 1; i < len(args); i++ {
+			a := args[i]
+			if strings.HasPrefix(a, "--summary=") {
+				summary = strings.TrimSpace(strings.TrimPrefix(a, "--summary="))
+				continue
+			}
+			if a == "--summary" {
+				if i+1 >= len(args) {
+					fmt.Fprintln(stderr, "usage: nt-cli session end [id] [--summary=\"text\"]")
+					return 1
+				}
+				i++
+				summary = strings.TrimSpace(args[i])
+				continue
+			}
+			if strings.HasPrefix(a, "--") {
+				fmt.Fprintln(stderr, "usage: nt-cli session end [id] [--summary=\"text\"]")
+				return 1
+			}
+			if id != "" {
+				fmt.Fprintln(stderr, "usage: nt-cli session end [id] [--summary=\"text\"]")
+				return 1
+			}
+			id = strings.TrimSpace(a)
+		}
+		if id == "" {
+			sess := svc.SessionStore()
+			if sess == nil {
+				fmt.Fprintln(stderr, "session end failed: store does not support session operations")
+				return 1
+			}
+			activeID, err := sess.ActiveSessionID()
+			if err != nil {
+				fmt.Fprintf(stderr, "session end failed: %v\n", err)
+				return 1
+			}
+			id = activeID
+		}
+		if summary != "" {
+			if err := svc.SessionSummary(id, summary); err != nil {
+				fmt.Fprintf(stderr, "session summary failed: %v\n", err)
+				return 1
+			}
+		}
 		if err := svc.SessionEnd(id); err != nil {
 			fmt.Fprintf(stderr, "session end failed: %v\n", err)
 			return 1
@@ -703,7 +751,8 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  nt-cli get <id>")
 	fmt.Fprintln(w, "  nt-cli update <id> \"new content\"")
 	fmt.Fprintln(w, "  nt-cli delete <id>")
-	fmt.Fprintln(w, "  nt-cli session <start|end|summary> <id> [text]")
+	fmt.Fprintln(w, "  nt-cli session <start|end|summary> [id] [text]")
+	fmt.Fprintln(w, "  nt-cli behavior <list|show|dismiss|preview>")
 	fmt.Fprintln(w, "  nt-cli import [--dry-run] <file.json>")
 	fmt.Fprintln(w, "  nt-cli backup <path>")
 	fmt.Fprintln(w, "  nt-cli restore <path>")

@@ -61,3 +61,20 @@ Reglas:
 ## 7) Regla de oro
 
 Si hay ambigüedad de intención o de contexto, preguntar primero.
+
+## Behavioral Learning — Agent Protocol
+
+Cuando detectes una corrección del usuario o una preferencia estable, emití este marcador:
+
+`[BEHAVIORAL_OBSERVATION: category=<cat>, field=<field>, value=<val>, confidence=<0-100>]`
+
+Categorías válidas: `tone`, `format`, `process`, `language`, `preference`.
+
+Guía de confianza:
+- `0-40`: señal débil / posible one-off
+- `41-70`: patrón probable
+- `71-100`: preferencia explícita o repetida
+
+## SESSION CLOSE PROTOCOL (mandatory)
+
+To close a session programmatically: `nt-cli session end --summary "..."` (preferred over calling ntcli_local_session_summary directly)
