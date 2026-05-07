@@ -11,12 +11,15 @@ See `_shared/skill-resolver.md` for the full resolution protocol.
 | when drafting or posting feedback, review comments, maintainer replies, Slack messages, or GitHub comments | comment-writer | /home/ad373971/.config/opencode/skills/comment-writer/SKILL.md |
 | when implementing a change, preparing commits, splitting PRs, or planning chained or stacked PRs | work-unit-commits | /home/ad373971/.config/opencode/skills/work-unit-commits/SKILL.md |
 | when writing guides, READMEs, RFCs, onboarding docs, architecture docs, or review-facing documentation | cognitive-doc-design | /home/ad373971/.config/opencode/skills/cognitive-doc-design/SKILL.md |
-| when a PR would exceed 400 changed lines, when planning chained PRs, stacked PRs, or reviewable slices | gentle-ai-chained-pr | /home/ad373971/.config/opencode/skills/chained-pr/SKILL.md |
+| when a PR would exceed 400 changed lines, when planning chained PRs, stacked PRs, or reviewable slices | chained-pr | /home/ad373971/.config/opencode/skills/chained-pr/SKILL.md |
 | when creating a GitHub issue, reporting a bug, or requesting a feature | issue-creation | /home/ad373971/.config/opencode/skills/issue-creation/SKILL.md |
 | when creating a pull request, opening a PR, or preparing changes for review | branch-pr | /home/ad373971/.config/opencode/skills/branch-pr/SKILL.md |
 | when user asks to create a new skill, add agent instructions, or document patterns for AI | skill-creator | /home/ad373971/.config/opencode/skills/skill-creator/SKILL.md |
 | when writing Go tests, using teatest, or adding test coverage | go-testing | /home/ad373971/.config/opencode/skills/go-testing/SKILL.md |
 | when user says "judgment day", "judgment-day", "review adversarial", "dual review", "doble review", "juzgar", "que lo juzguen" | judgment-day | /home/ad373971/.config/opencode/skills/judgment-day/SKILL.md |
+| when reviewing code for security issues, auditing a PR, running a security pass, or the user asks for a security check | security-review | /home/ad373971/.config/opencode/skills/security-review/SKILL.md |
+| when fixing a bug, investigating an error, diagnosing unexpected behavior, or the user reports something is broken | bug-fix | /home/ad373971/.config/opencode/skills/bug-fix/SKILL.md |
+| when writing or updating documentation, adding docstrings/JSDoc/godoc, creating READMEs, documenting APIs, or the user asks to document something | doc-writer | /home/ad373971/.config/opencode/skills/doc-writer/SKILL.md |
 
 ## Compact Rules
 
@@ -44,7 +47,7 @@ See `_shared/skill-resolver.md` for the full resolution protocol.
 - Make review path explicit, including scope boundaries.
 - Keep each section tied to one decision/work unit.
 
-### gentle-ai-chained-pr
+### chained-pr
 - Split PRs exceeding 400 changed lines unless `size:exception` is approved.
 - Keep each slice autonomous: green CI, clear scope, rollback, verification.
 - State start/end boundaries, dependencies, and follow-ups in every PR.
@@ -91,6 +94,30 @@ See `_shared/skill-resolver.md` for the full resolution protocol.
 - Fix only confirmed issues, then re-judge in parallel.
 - After two fix rounds with remaining blockers, ask user before continuing.
 - Never approve without required clean convergence criteria.
+
+### security-review
+- Report findings grouped by severity (Critical, High, Medium, Low/Informational).
+- Always explain **why** something is a risk, not just what.
+- Propose concrete fixes, not generic recommendations.
+- Flag areas checked with no findings for confidence.
+- Do NOT auto-fix critical issues without user confirmation.
+- If codebase uses a pattern consistently, note systemic risk, not individual instances.
+
+### bug-fix
+- Diagnose before fixing: Reproduce → Isolate → Root cause → Fix → Verify.
+- Distinguish symptom (where it crashes) from cause (why it happens).
+- Fix root cause, not the symptom; prefer minimal change.
+- Always add or update test that reproduces the exact bug.
+- Document fix with root cause, file:line, and follow-ups in memory.
+- NEVER fix without reproducing first; NEVER suppress errors.
+
+### doc-writer
+- Document the WHY, not the WHAT; code shows what, docs explain why.
+- Match existing doc style of the project.
+- Keep examples **runnable** — test them mentally before writing.
+- For inline docs: use JSDoc (TS/JS), Google-style (Python), godoc (Go), rustdoc (Rust).
+- For READMEs: structure with Quick Start, Usage, Configuration, API, Architecture, Development, Contributing.
+- Flag if a function/module is too complex to document simply as a design smell.
 
 ## Project Conventions
 
