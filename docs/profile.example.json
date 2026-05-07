@@ -1,0 +1,7 @@
+{
+  "language": "es-AR",
+  "tone": "argentino",
+  "verbosity": "short",
+  "ask_before_mutation": true,
+  "context_autoswitch": true
+}
