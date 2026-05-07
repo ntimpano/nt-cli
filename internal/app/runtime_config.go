@@ -88,5 +88,5 @@ func (r RuntimeConfig) Save() error {
 		return err
 	}
 	body = append(body, '\n')
-	return os.WriteFile(path, body, 0o644)
+	return os.WriteFile(path, body, 0o600)
 }
