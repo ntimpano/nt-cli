@@ -705,7 +705,7 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				_ = json.Unmarshal(params.Arguments, &args)
 				cwd := strings.TrimSpace(args.CWD)
 				if cwd == "" {
-					cwd, _ = os.Getwd()
+					return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("cwd is required: pass the working directory of the project you want to probe")}, true
 				}
 				res, err := svc.ProjectEng.Probe(cwd)
 				if err != nil {
@@ -1119,8 +1119,9 @@ func toolsListResult() map[string]interface{} {
 			"inputSchema": map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
-					"cwd": map[string]interface{}{"type": "string", "description": "Working directory to probe (defaults to server cwd)"},
+					"cwd": map[string]interface{}{"type": "string", "description": "Working directory to probe (required; pass the project directory explicitly)"},
 				},
+				"required": []string{"cwd"},
 			},
 		},
 		map[string]interface{}{
