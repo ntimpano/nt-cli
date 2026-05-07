@@ -6,6 +6,22 @@
     "permission": {
       "task": {
         "*": "deny",
+        "nt-spark": "allow",
+        "nt-creative-expand": "allow",
+        "nt-creative-focus": "allow",
+        "nt-creative-shape": "allow",
+        "nt-creative-polish": "allow",
+        "nt-creative-ship": "allow",
+        "nt-strategy-diagnose": "allow",
+        "nt-strategy-options": "allow",
+        "nt-strategy-decide": "allow",
+        "nt-strategy-communicate": "allow",
+        "nt-strategy-track": "allow",
+        "nt-research-gather": "allow",
+        "nt-research-synthesize": "allow",
+        "nt-research-challenge": "allow",
+        "nt-research-conclude": "allow",
+        "nt-research-document": "allow",
         "nt-sdd-apply": "allow",
         "nt-sdd-archive": "allow",
         "nt-sdd-design": "allow",
@@ -24,6 +40,214 @@
       "delegate": true,
       "delegation_list": true,
       "delegation_read": true,
+      "edit": true,
+      "read": true,
+      "write": true
+    }
+  },
+  "nt-spark": {
+    "description": "Initial workflow router that emits visible phase signal and delegates first step",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "claude-sonnet-4-5",
+    "prompt": "{file:/opt/nt-cli/prompts/shared/nt-spark.md}",
+    "tools": {
+      "bash": true,
+      "edit": true,
+      "read": true,
+      "write": true
+    }
+  },
+  "nt-creative-expand": {
+    "description": "Creative divergence agent that generates many unfiltered ideas",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "claude-sonnet-4-5",
+    "prompt": "{file:/opt/nt-cli/prompts/creative/nt-creative-expand.md}",
+    "tools": {
+      "bash": true,
+      "edit": true,
+      "read": true,
+      "write": true
+    }
+  },
+  "nt-creative-focus": {
+    "description": "Creative convergence agent that selects the top 2-3 concepts",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "claude-sonnet-4-5",
+    "prompt": "{file:/opt/nt-cli/prompts/creative/nt-creative-focus.md}",
+    "tools": {
+      "bash": true,
+      "edit": true,
+      "read": true,
+      "write": true
+    }
+  },
+  "nt-creative-shape": {
+    "description": "Creative structuring agent that turns selected ideas into plans",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "claude-sonnet-4-5",
+    "prompt": "{file:/opt/nt-cli/prompts/creative/nt-creative-shape.md}",
+    "tools": {
+      "bash": true,
+      "edit": true,
+      "read": true,
+      "write": true
+    }
+  },
+  "nt-creative-polish": {
+    "description": "Creative refinement agent for quality, clarity, and consistency",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "claude-sonnet-4-5",
+    "prompt": "{file:/opt/nt-cli/prompts/creative/nt-creative-polish.md}",
+    "tools": {
+      "bash": true,
+      "edit": true,
+      "read": true,
+      "write": true
+    }
+  },
+  "nt-creative-ship": {
+    "description": "Creative delivery agent that prepares final audience-ready output",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "claude-sonnet-4-5",
+    "prompt": "{file:/opt/nt-cli/prompts/creative/nt-creative-ship.md}",
+    "tools": {
+      "bash": true,
+      "edit": true,
+      "read": true,
+      "write": true
+    }
+  },
+  "nt-strategy-diagnose": {
+    "description": "Strategy diagnosis agent for root causes, constraints, and evidence",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "claude-sonnet-4-5",
+    "prompt": "{file:/opt/nt-cli/prompts/strategy/nt-strategy-diagnose.md}",
+    "tools": {
+      "bash": true,
+      "edit": true,
+      "read": true,
+      "write": true
+    }
+  },
+  "nt-strategy-options": {
+    "description": "Strategy options agent generating alternatives and tradeoff analysis",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "claude-sonnet-4-5",
+    "prompt": "{file:/opt/nt-cli/prompts/strategy/nt-strategy-options.md}",
+    "tools": {
+      "bash": true,
+      "edit": true,
+      "read": true,
+      "write": true
+    }
+  },
+  "nt-strategy-decide": {
+    "description": "Strategy decision agent selecting a path with rationale and risks",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "claude-sonnet-4-5",
+    "prompt": "{file:/opt/nt-cli/prompts/strategy/nt-strategy-decide.md}",
+    "tools": {
+      "bash": true,
+      "edit": true,
+      "read": true,
+      "write": true
+    }
+  },
+  "nt-strategy-communicate": {
+    "description": "Strategy communication agent producing stakeholder-ready messaging",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "claude-sonnet-4-5",
+    "prompt": "{file:/opt/nt-cli/prompts/strategy/nt-strategy-communicate.md}",
+    "tools": {
+      "bash": true,
+      "edit": true,
+      "read": true,
+      "write": true
+    }
+  },
+  "nt-strategy-track": {
+    "description": "Strategy tracking agent defining metrics, checkpoints, and milestones",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "claude-sonnet-4-5",
+    "prompt": "{file:/opt/nt-cli/prompts/strategy/nt-strategy-track.md}",
+    "tools": {
+      "bash": true,
+      "edit": true,
+      "read": true,
+      "write": true
+    }
+  },
+  "nt-research-gather": {
+    "description": "Research gathering agent collecting structured evidence with sources",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "claude-sonnet-4-5",
+    "prompt": "{file:/opt/nt-cli/prompts/research/nt-research-gather.md}",
+    "tools": {
+      "bash": true,
+      "edit": true,
+      "read": true,
+      "write": true
+    }
+  },
+  "nt-research-synthesize": {
+    "description": "Research synthesis agent extracting patterns and key insights",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "claude-sonnet-4-5",
+    "prompt": "{file:/opt/nt-cli/prompts/research/nt-research-synthesize.md}",
+    "tools": {
+      "bash": true,
+      "edit": true,
+      "read": true,
+      "write": true
+    }
+  },
+  "nt-research-challenge": {
+    "description": "Research challenge agent stress-testing conclusions and gaps",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "claude-sonnet-4-5",
+    "prompt": "{file:/opt/nt-cli/prompts/research/nt-research-challenge.md}",
+    "tools": {
+      "bash": true,
+      "edit": true,
+      "read": true,
+      "write": true
+    }
+  },
+  "nt-research-conclude": {
+    "description": "Research conclusion agent producing final findings with confidence",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "claude-sonnet-4-5",
+    "prompt": "{file:/opt/nt-cli/prompts/research/nt-research-conclude.md}",
+    "tools": {
+      "bash": true,
+      "edit": true,
+      "read": true,
+      "write": true
+    }
+  },
+  "nt-research-document": {
+    "description": "Research documentation agent producing shareable final deliverables",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "claude-sonnet-4-5",
+    "prompt": "{file:/opt/nt-cli/prompts/research/nt-research-document.md}",
+    "tools": {
+      "bash": true,
       "edit": true,
       "read": true,
       "write": true
