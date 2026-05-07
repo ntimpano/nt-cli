@@ -21,6 +21,7 @@ func TestToolDescriptions_MarkLocalOnly(t *testing.T) {
 		"local_get",
 		"local_update",
 		"local_delete",
+		"ntcli_local_record_observation",
 	}
 
 	byName := map[string]map[string]interface{}{}

@@ -60,8 +60,8 @@ func TestInit_V5_FreshDB_CreatesDefaultProjectAndBackfills(t *testing.T) {
 	if err != nil {
 		t.Fatalf("schema version: %v", err)
 	}
-	if v != 5 {
-		t.Fatalf("expected schema_version 5, got %d", v)
+	if v != CurrentSchemaVersion {
+		t.Fatalf("expected schema_version %d, got %d", CurrentSchemaVersion, v)
 	}
 
 	// projects table must contain exactly one row named "default".
@@ -200,7 +200,7 @@ func TestInit_V5_SnapshotFailureAbortsMigration(t *testing.T) {
 	}
 	// schema_version must NOT be 5.
 	v, _ := upgraded.SchemaVersion()
-	if v == 5 {
-		t.Fatalf("schema_version must not advance to 5 on aborted migration")
+	if v == CurrentSchemaVersion {
+		t.Fatalf("schema_version must not advance to %d on aborted migration", CurrentSchemaVersion)
 	}
 }

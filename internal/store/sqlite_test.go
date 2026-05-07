@@ -10,6 +10,49 @@ import (
 	"nt-cli/internal/app"
 )
 
+func TestInit_MigrationV5ToV6_BehavioralTableExists(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "v5.db")
+
+	s, err := NewSQLiteStore(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer s.Close()
+
+	if _, err := s.db.Exec(`
+		CREATE TABLE IF NOT EXISTS schema_version (
+			version INTEGER PRIMARY KEY,
+			applied_at DATETIME NOT NULL
+		);
+	`); err != nil {
+		t.Fatalf("create schema_version: %v", err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO schema_version(version, applied_at) VALUES(5, ?)`, time.Now().UTC().Format(time.RFC3339)); err != nil {
+		t.Fatalf("seed schema_version=5: %v", err)
+	}
+
+	if err := s.Init(); err != nil {
+		t.Fatalf("Init from v5 to v6: %v", err)
+	}
+
+	var tableName string
+	if err := s.db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name='behavioral_observations'`).Scan(&tableName); err != nil {
+		t.Fatalf("behavioral_observations table missing: %v", err)
+	}
+	if tableName != "behavioral_observations" {
+		t.Fatalf("expected behavioral_observations table, got %q", tableName)
+	}
+
+	v, err := s.SchemaVersion()
+	if err != nil {
+		t.Fatalf("SchemaVersion: %v", err)
+	}
+	if v != 6 {
+		t.Fatalf("expected schema_version=6, got %d", v)
+	}
+}
+
 func newTestStore(t *testing.T) *SQLiteStore {
 	t.Helper()
 	dir := t.TempDir()

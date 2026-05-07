@@ -50,6 +50,13 @@ func (s *sessionMemStore) SessionEvents(id string) ([]app.SessionEvent, error) {
 	return nil, nil
 }
 
+func (s *sessionMemStore) ActiveSessionID() (string, error) {
+	if strings.TrimSpace(s.lastID) == "" {
+		return "", nil
+	}
+	return s.lastID, nil
+}
+
 // Compile-time guard: sessionMemStore satisfies Store and SessionStore.
 var _ app.Store = (*sessionMemStore)(nil)
 var _ app.SessionStore = (*sessionMemStore)(nil)

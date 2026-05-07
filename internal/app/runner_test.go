@@ -16,10 +16,19 @@ import (
 type memStore struct {
 	items  map[int64]app.MemoryItem
 	nextID int64
+
+	obs          map[int64]app.BehavioralObservation
+	obsNextID    int64
+	activeSessID string
 }
 
 func newMemStore() *memStore {
-	return &memStore{items: map[int64]app.MemoryItem{}, nextID: 1}
+	return &memStore{
+		items:     map[int64]app.MemoryItem{},
+		nextID:    1,
+		obs:       map[int64]app.BehavioralObservation{},
+		obsNextID: 1,
+	}
 }
 
 func (m *memStore) Init() error { return nil }
@@ -83,6 +92,106 @@ func (m *memStore) Delete(id int64) (bool, error) {
 }
 
 func (m *memStore) Close() error { return nil }
+
+func (m *memStore) SessionStart(id string, at time.Time) error {
+	m.activeSessID = strings.TrimSpace(id)
+	return nil
+}
+
+func (m *memStore) SessionSummary(id, summary string, at time.Time) error {
+	_ = summary
+	m.activeSessID = strings.TrimSpace(id)
+	return nil
+}
+
+func (m *memStore) SessionEnd(id string, at time.Time) error {
+	if strings.TrimSpace(id) == strings.TrimSpace(m.activeSessID) {
+		m.activeSessID = ""
+	}
+	return nil
+}
+
+func (m *memStore) SessionEvents(id string) ([]app.SessionEvent, error) {
+	_ = id
+	return nil, nil
+}
+
+func (m *memStore) ActiveSessionID() (string, error) {
+	if strings.TrimSpace(m.activeSessID) == "" {
+		return "", app.ErrNotFound
+	}
+	return m.activeSessID, nil
+}
+
+func (m *memStore) RecordObservation(category, field, value string, confidence int, now time.Time) (int64, error) {
+	for id, obs := range m.obs {
+		if obs.Category == category && obs.Field == field && obs.Value == value {
+			obs.OccurrenceCount++
+			obs.LastSeen = now
+			if obs.OccurrenceCount >= 3 && obs.Confidence > 60 {
+				obs.Status = "candidate"
+			}
+			m.obs[id] = obs
+			return id, nil
+		}
+	}
+	id := m.obsNextID
+	m.obsNextID++
+	m.obs[id] = app.BehavioralObservation{
+		ID:              id,
+		Category:        category,
+		Field:           field,
+		Value:           value,
+		Confidence:      confidence,
+		OccurrenceCount: 1,
+		Status:          "observed",
+		LastSeen:        now,
+		CreatedAt:       now,
+	}
+	return id, nil
+}
+
+func (m *memStore) ListObservations(includeStatuses []string) ([]app.BehavioralObservation, error) {
+	allowed := map[string]bool{}
+	for _, st := range includeStatuses {
+		allowed[st] = true
+	}
+	out := make([]app.BehavioralObservation, 0, len(m.obs))
+	for _, obs := range m.obs {
+		if allowed[obs.Status] {
+			out = append(out, obs)
+		}
+	}
+	return out, nil
+}
+
+func (m *memStore) GetObservation(id int64) (*app.BehavioralObservation, error) {
+	obs, ok := m.obs[id]
+	if !ok {
+		return nil, app.ErrNotFound
+	}
+	return &obs, nil
+}
+
+func (m *memStore) DismissObservation(id int64) error {
+	obs, ok := m.obs[id]
+	if !ok {
+		return nil
+	}
+	obs.Status = "dismissed"
+	m.obs[id] = obs
+	return nil
+}
+
+func (m *memStore) Candidates() ([]app.BehavioralObservation, error) {
+	out := []app.BehavioralObservation{}
+	for _, obs := range m.obs {
+		if obs.Status == "candidate" {
+			out = append(out, obs)
+		}
+	}
+	return out, nil
+}
 
 func runCLI(t *testing.T, store *memStore, args ...string) (int, string, string) {
 	t.Helper()
@@ -289,6 +398,94 @@ func TestRunCLI_NoArgsPrintsUsageAndExitsNonZero(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "nt-cli commands") && !strings.Contains(stdout, "save") {
 		t.Fatalf("expected usage on stdout, got %q", stdout)
+	}
+}
+
+func TestRunCLI_BehaviorCommands(t *testing.T) {
+	store := newMemStore()
+	_, _ = store.RecordObservation("tone", "language", "es", 90, time.Now().UTC())
+	for i := 0; i < 2; i++ {
+		_, _ = store.RecordObservation("tone", "language", "es", 90, time.Now().UTC().Add(time.Duration(i+1)*time.Minute))
+	}
+
+	code, out, errOut := runCLI(t, store, "behavior", "list")
+	if code != 0 || errOut != "" {
+		t.Fatalf("behavior list failed: code=%d stderr=%q", code, errOut)
+	}
+	if !strings.Contains(out, "status=candidate") {
+		t.Fatalf("expected candidate in list output, got %q", out)
+	}
+
+	code, out, errOut = runCLI(t, store, "behavior", "list", "--candidates")
+	if code != 0 || errOut != "" {
+		t.Fatalf("behavior list --candidates failed: code=%d stderr=%q", code, errOut)
+	}
+	if !strings.Contains(out, "candidate") {
+		t.Fatalf("expected candidates output, got %q", out)
+	}
+
+	code, out, errOut = runCLI(t, store, "behavior", "show", "1")
+	if code != 0 || errOut != "" {
+		t.Fatalf("behavior show failed: code=%d stderr=%q", code, errOut)
+	}
+	if !strings.Contains(out, "category:") {
+		t.Fatalf("expected detailed show output, got %q", out)
+	}
+
+	code, _, errOut = runCLI(t, store, "behavior", "show", "999")
+	if code == 0 {
+		t.Fatalf("expected non-zero for missing show")
+	}
+
+	code, out, errOut = runCLI(t, store, "behavior", "preview")
+	if code != 0 || errOut != "" {
+		t.Fatalf("behavior preview failed: code=%d stderr=%q", code, errOut)
+	}
+	if !strings.Contains(out, "nt-cli:behavioral-candidates") {
+		t.Fatalf("expected behavioral preview block, got %q", out)
+	}
+
+	code, out, errOut = runCLI(t, store, "behavior", "dismiss", "1")
+	if code != 0 || errOut != "" {
+		t.Fatalf("behavior dismiss failed: code=%d stderr=%q", code, errOut)
+	}
+	if !strings.Contains(out, "dismissed") {
+		t.Fatalf("expected dismiss confirmation, got %q", out)
+	}
+}
+
+func TestRunCLI_BehaviorPreviewNoCandidates(t *testing.T) {
+	store := newMemStore()
+	code, out, errOut := runCLI(t, store, "behavior", "preview")
+	if code != 0 || errOut != "" {
+		t.Fatalf("behavior preview failed: code=%d stderr=%q", code, errOut)
+	}
+	if !strings.Contains(out, "No candidates to preview") {
+		t.Fatalf("expected empty preview message, got %q", out)
+	}
+}
+
+func TestRunCLI_SessionEndAutoActive(t *testing.T) {
+	store := newMemStore()
+	store.activeSessID = "sess-abc"
+
+	code, out, errOut := runCLI(t, store, "session", "end", "--summary", "wrapped up refactor")
+	if code != 0 || errOut != "" {
+		t.Fatalf("session end failed: code=%d stderr=%q", code, errOut)
+	}
+	if !strings.Contains(out, "session ended sess-abc") {
+		t.Fatalf("expected session end output with active id, got %q", out)
+	}
+}
+
+func TestRunCLI_SessionEndNoActiveSession(t *testing.T) {
+	store := newMemStore()
+	code, _, errOut := runCLI(t, store, "session", "end")
+	if code == 0 {
+		t.Fatalf("expected non-zero when no active session")
+	}
+	if strings.TrimSpace(errOut) == "" {
+		t.Fatalf("expected stderr when no active session")
 	}
 }
 

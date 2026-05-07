@@ -11,14 +11,21 @@ import (
 
 // memStore is a minimal in-memory Store used to drive Service in MCP tests.
 type memStore struct {
-	items     map[int64]app.MemoryItem
-	nextID    int64
-	failGet   error
+	items      map[int64]app.MemoryItem
+	nextID     int64
+	failGet    error
 	failUpdate error
+	obs        map[int64]app.BehavioralObservation
+	obsNextID  int64
 }
 
 func newMemStore() *memStore {
-	return &memStore{items: map[int64]app.MemoryItem{}, nextID: 1}
+	return &memStore{
+		items:     map[int64]app.MemoryItem{},
+		nextID:    1,
+		obs:       map[int64]app.BehavioralObservation{},
+		obsNextID: 1,
+	}
 }
 
 func (m *memStore) Init() error { return nil }
@@ -70,6 +77,76 @@ func (m *memStore) Delete(id int64) (bool, error) {
 }
 
 func (m *memStore) Close() error { return nil }
+
+func (m *memStore) RecordObservation(category, field, value string, confidence int, now time.Time) (int64, error) {
+	for id, obs := range m.obs {
+		if obs.Category == category && obs.Field == field && obs.Value == value {
+			obs.OccurrenceCount++
+			obs.LastSeen = now
+			if obs.OccurrenceCount >= 3 && obs.Confidence > 60 {
+				obs.Status = "candidate"
+			}
+			m.obs[id] = obs
+			return id, nil
+		}
+	}
+	id := m.obsNextID
+	m.obsNextID++
+	m.obs[id] = app.BehavioralObservation{
+		ID:              id,
+		Category:        category,
+		Field:           field,
+		Value:           value,
+		Confidence:      confidence,
+		OccurrenceCount: 1,
+		Status:          "observed",
+		LastSeen:        now,
+		CreatedAt:       now,
+	}
+	return id, nil
+}
+
+func (m *memStore) ListObservations(includeStatuses []string) ([]app.BehavioralObservation, error) {
+	allowed := map[string]bool{}
+	for _, st := range includeStatuses {
+		allowed[st] = true
+	}
+	out := make([]app.BehavioralObservation, 0, len(m.obs))
+	for _, obs := range m.obs {
+		if allowed[obs.Status] {
+			out = append(out, obs)
+		}
+	}
+	return out, nil
+}
+
+func (m *memStore) GetObservation(id int64) (*app.BehavioralObservation, error) {
+	obs, ok := m.obs[id]
+	if !ok {
+		return nil, app.ErrNotFound
+	}
+	return &obs, nil
+}
+
+func (m *memStore) DismissObservation(id int64) error {
+	obs, ok := m.obs[id]
+	if !ok {
+		return nil
+	}
+	obs.Status = "dismissed"
+	m.obs[id] = obs
+	return nil
+}
+
+func (m *memStore) Candidates() ([]app.BehavioralObservation, error) {
+	out := []app.BehavioralObservation{}
+	for _, obs := range m.obs {
+		if obs.Status == "candidate" {
+			out = append(out, obs)
+		}
+	}
+	return out, nil
+}
 
 func newCallReq(t *testing.T, name string, args interface{}) []byte {
 	t.Helper()
@@ -261,5 +338,48 @@ func TestLocalUpdate_EmptyContentReturnsError(t *testing.T) {
 	got, _ := store.Get(id)
 	if got.Content != "old" {
 		t.Fatalf("expected content unchanged on validation failure, got %q", got.Content)
+	}
+}
+
+func TestLocalRecordObservation_ValidMarkerReturnsID(t *testing.T) {
+	store := newMemStore()
+	svc := app.NewService(store)
+
+	payload := newCallReq(t, "ntcli_local_record_observation", map[string]interface{}{
+		"marker": "[BEHAVIORAL_OBSERVATION: category=tone, field=language, value=es, confidence=90]",
+	})
+	resp, ok := handleRequest(payload, svc)
+	if !ok {
+		t.Fatalf("expected response")
+	}
+	text, isErr := toolPayloadText(t, resp)
+	if isErr {
+		t.Fatalf("expected non-error result, got %q", text)
+	}
+	if !strings.Contains(text, "#") {
+		t.Fatalf("expected id in response text, got %q", text)
+	}
+}
+
+func TestLocalRecordObservation_MalformedMarkerReturnsNonFatalTextError(t *testing.T) {
+	store := newMemStore()
+	svc := app.NewService(store)
+
+	payload := newCallReq(t, "ntcli_local_record_observation", map[string]interface{}{
+		"marker": "[BEHAVIORAL_OBSERVATION: category=tone, value=es, confidence=90]",
+	})
+	resp, ok := handleRequest(payload, svc)
+	if !ok {
+		t.Fatalf("expected response")
+	}
+	if resp.Error != nil {
+		t.Fatalf("expected non-fatal tool text error, got rpc error: %+v", resp.Error)
+	}
+	text, isErr := toolPayloadText(t, resp)
+	if isErr {
+		t.Fatalf("expected non-fatal text (isError=false), got isError=true text=%q", text)
+	}
+	if !strings.Contains(strings.ToLower(text), "invalid marker") {
+		t.Fatalf("expected marker validation text, got %q", text)
 	}
 }

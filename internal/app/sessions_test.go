@@ -59,6 +59,10 @@ func (f *sessionFakeStore) SessionEvents(id string) ([]SessionEvent, error) {
 	return f.events, nil
 }
 
+func (f *sessionFakeStore) ActiveSessionID() (string, error) {
+	return strings.TrimSpace(f.lastID), nil
+}
+
 var errStubFail = stubErr("stub failure")
 
 type stubErr string

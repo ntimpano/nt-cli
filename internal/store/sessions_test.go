@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"testing"
 	"time"
 
@@ -103,3 +104,37 @@ func TestSessions_RejectsEmptyID(t *testing.T) {
 // ensureSessionEventType silences the "unused import" compile when the
 // test file is compiled before the production type exists.
 var _ = app.MemoryItem{}
+
+func TestSessions_ActiveSessionID(t *testing.T) {
+	s := newTestStore(t)
+	now := time.Date(2024, 6, 1, 12, 0, 0, 0, time.UTC)
+
+	if _, err := s.ActiveSessionID(); !errors.Is(err, ErrNoActiveSession) {
+		t.Fatalf("expected ErrNoActiveSession on empty log, got %v", err)
+	}
+
+	if err := s.SessionStart("sess-a", now); err != nil {
+		t.Fatalf("SessionStart sess-a: %v", err)
+	}
+	if err := s.SessionStart("sess-b", now.Add(time.Minute)); err != nil {
+		t.Fatalf("SessionStart sess-b: %v", err)
+	}
+	if err := s.SessionEnd("sess-b", now.Add(2*time.Minute)); err != nil {
+		t.Fatalf("SessionEnd sess-b: %v", err)
+	}
+
+	id, err := s.ActiveSessionID()
+	if err != nil {
+		t.Fatalf("ActiveSessionID: %v", err)
+	}
+	if id != "sess-a" {
+		t.Fatalf("expected sess-a active, got %q", id)
+	}
+
+	if err := s.SessionEnd("sess-a", now.Add(3*time.Minute)); err != nil {
+		t.Fatalf("SessionEnd sess-a: %v", err)
+	}
+	if _, err := s.ActiveSessionID(); !errors.Is(err, ErrNoActiveSession) {
+		t.Fatalf("expected ErrNoActiveSession after ending all sessions, got %v", err)
+	}
+}
