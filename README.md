@@ -2,6 +2,37 @@
 
 Local-first CLI de memoria personal en Go + SQLite, con modo MCP.
 
+## Quick Start
+
+### Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ntimpano/nt-cli/main/scripts/install.sh | bash
+```
+
+Requires: `curl`, `jq`.
+
+Installs `nt-cli` to `~/.local/bin` and merges `nt-*` agents into `~/.config/opencode/opencode.json`.
+
+### Upgrade
+
+```bash
+NT_CLI_VERSION=v1.2.0 curl -fsSL https://raw.githubusercontent.com/ntimpano/nt-cli/main/scripts/install.sh | bash
+```
+
+### Usage
+
+```bash
+# Initialize your profile
+nt-cli init
+
+# View context summary
+nt-cli context --summary
+
+# MCP server mode (for opencode)
+nt-cli mcp
+```
+
 ## Comandos
 
 ```bash
@@ -112,6 +143,27 @@ El wrapper `scripts/opencode-mcp-dev.sh` ejecuta `go run ./cmd/nt-cli mcp`.
 Así, OpenCode siempre levanta el código más reciente al iniciar el MCP.
 
 > Nota: igual necesitás reabrir/reconectar OpenCode para que relance el proceso MCP, pero no hace falta compilar manualmente cada cambio.
+
+## Runtime behavior y perfil de usuario
+
+El comportamiento global recomendado para agentes en este repo está documentado en:
+
+- `AGENTS.md` (defaults del proyecto)
+
+Personalización por usuario (opcional):
+
+- `~/.nt-cli/profile.json`
+
+Ejemplo base:
+
+- `docs/profile.example.json`
+
+Defaults actuales:
+
+- tono argentino (es-AR, voseo)
+- respuestas cortas
+- autoswitch de contexto activo
+- preguntar antes de mutar cuando hay duda
 
 ## Rollout
 
