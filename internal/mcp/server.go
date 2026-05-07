@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -212,10 +213,7 @@ type initializeParams struct {
 }
 
 func (s *Server) Run() error {
-	debugPath := os.Getenv("NTCLI_MCP_DEBUG")
-	if debugPath == "" {
-		debugPath = "/tmp/nt-cli-mcp.log"
-	}
+	debugPath := resolveDebugLogPath()
 	debugLog(debugPath, "server start")
 
 	dbPath, err := app.DefaultDBPath()
@@ -310,12 +308,32 @@ func (s *Server) Run() error {
 }
 
 func debugLog(path, msg string) {
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return
+	}
+	_ = os.Chmod(filepath.Dir(path), 0o755)
+
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
 		return
 	}
 	defer f.Close()
+	_ = os.Chmod(path, 0o600)
 	_, _ = fmt.Fprintf(f, "%s %s\n", time.Now().Format(time.RFC3339Nano), msg)
+}
+
+func resolveDebugLogPath() string {
+	if strings.TrimSpace(os.Getenv("NTCLI_MCP_DEBUG")) != "1" {
+		return ""
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return ""
+	}
+	return filepath.Join(home, ".nt-cli", "logs", "mcp.log")
 }
 
 func truncateForLog(s string, max int) string {
