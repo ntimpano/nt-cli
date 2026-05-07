@@ -1,0 +1,29 @@
+{
+  "version": "1",
+  "workflows": {
+    "dev": {
+      "description": "Software development with SDD",
+      "phases": ["spark", "explore", "propose", "spec", "design", "tasks", "apply", "verify", "archive"],
+      "agents": ["nt-spark", "nt-sdd-explore", "nt-sdd-propose", "nt-sdd-spec", "nt-sdd-design", "nt-sdd-tasks", "nt-sdd-apply", "nt-sdd-verify", "nt-sdd-archive"],
+      "default_tools": ["read", "write", "bash", "glob", "grep"]
+    },
+    "creative": {
+      "description": "Creative work: writing, design, content",
+      "phases": ["spark", "expand", "focus", "shape", "polish", "ship"],
+      "agents": ["nt-spark", "nt-creative-expand", "nt-creative-focus", "nt-creative-shape", "nt-creative-polish", "nt-creative-ship"],
+      "default_tools": ["read", "write"]
+    },
+    "strategy": {
+      "description": "Strategic planning and decision making",
+      "phases": ["brief", "diagnose", "options", "decide", "communicate", "track"],
+      "agents": ["nt-spark", "nt-strategy-diagnose", "nt-strategy-options", "nt-strategy-decide", "nt-strategy-communicate", "nt-strategy-track"],
+      "default_tools": ["read", "write"]
+    },
+    "research": {
+      "description": "Research, analysis and synthesis",
+      "phases": ["question", "gather", "synthesize", "challenge", "conclude", "document"],
+      "agents": ["nt-spark", "nt-research-gather", "nt-research-synthesize", "nt-research-challenge", "nt-research-conclude", "nt-research-document"],
+      "default_tools": ["read", "write", "webfetch"]
+    }
+  }
+}
