@@ -29,7 +29,7 @@ NT_CLI_VERSION=v1.2.0 curl -fsSL https://raw.githubusercontent.com/ntimpano/nt-c
 ### Usage
 
 ```bash
-# Initialize your profile
+# Initialize nt-cli: runtime, model, domain, persona
 nt-cli init
 
 # View context summary
@@ -42,7 +42,7 @@ nt-cli mcp
 ## Comandos
 
 ```bash
-go run ./cmd/nt-cli init
+go run ./cmd/nt-cli init   # Initialize nt-cli: configure runtime, AI model, domain, and persona
 go run ./cmd/nt-cli save "idea importante"
 go run ./cmd/nt-cli save --type=decision --topic-key=arch/auth --title="Auth Model" --scope=project "elegimos JWT"
 go run ./cmd/nt-cli recall "idea"

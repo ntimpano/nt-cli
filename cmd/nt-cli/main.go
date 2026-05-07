@@ -50,8 +50,15 @@ func main() {
 			os.Exit(1)
 		}
 		fmt.Printf("initialized at %s\n", dbPath)
-		if code := app.RunInitProfile(os.Args[2:], os.Stdin, os.Stdout, os.Stderr); code != 0 {
-			os.Exit(code)
+		if containsFlag(os.Args[2:], "--legacy") {
+			if code := app.RunInitProfile(os.Args[2:], os.Stdin, os.Stdout, os.Stderr); code != 0 {
+				os.Exit(code)
+			}
+			return
+		}
+		if err := app.RunInit(os.Args[2:]); err != nil {
+			fmt.Fprintf(os.Stderr, "init failed: %v\n", err)
+			os.Exit(1)
 		}
 		return
 	}
@@ -63,4 +70,13 @@ func main() {
 	}
 
 	os.Exit(app.RunCLIWithStdin(svc, os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+}
+
+func containsFlag(args []string, target string) bool {
+	for _, a := range args {
+		if a == target {
+			return true
+		}
+	}
+	return false
 }

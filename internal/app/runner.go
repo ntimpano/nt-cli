@@ -81,7 +81,14 @@ func runCLIWithInput(svc *Service, args []string, stdin io.Reader, stdout, stder
 			return 1
 		}
 		fmt.Fprintln(stdout, "initialized")
-		return RunInitProfile(args[1:], stdin, stdout, stderr)
+		if hasFlag(args[1:], "--legacy") {
+			return RunInitProfile(args[1:], stdin, stdout, stderr)
+		}
+		if err := runInit(args[1:], stdin, stdout, stderr); err != nil {
+			fmt.Fprintf(stderr, "init failed: %v\n", err)
+			return 1
+		}
+		return 0
 
 	case "save":
 		if len(args) < 2 {
@@ -743,7 +750,7 @@ func runSession(svc *Service, args []string, stdout, stderr io.Writer) int {
 
 func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "nt-cli commands:")
-	fmt.Fprintln(w, "  nt-cli init")
+	fmt.Fprintln(w, "  nt-cli init  Initialize nt-cli: configure runtime, AI model, domain, and persona")
 	fmt.Fprintln(w, "  nt-cli save \"note\"")
 	fmt.Fprintln(w, "  nt-cli recall [--type=...] [--since=YYYY-MM-DD] [--until=YYYY-MM-DD] \"query\"")
 	fmt.Fprintln(w, "  nt-cli context [--n=10] [--scope=...]")
@@ -758,6 +765,15 @@ func printUsage(w io.Writer) {
 	fmt.Fprintln(w, "  nt-cli restore <path>")
 	fmt.Fprintln(w, "  nt-cli doctor")
 	fmt.Fprintln(w, "  nt-cli mcp")
+}
+
+func hasFlag(args []string, flag string) bool {
+	for _, a := range args {
+		if strings.TrimSpace(a) == flag {
+			return true
+		}
+	}
+	return false
 }
 
 // parseDateFlag accepts YYYY-MM-DD (interpreted as UTC midnight) or RFC3339.

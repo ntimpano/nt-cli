@@ -17,6 +17,7 @@ type ProfileConfig struct {
 	Verbosity         string `json:"verbosity"`
 	AskBeforeMutation bool   `json:"ask_before_mutation"`
 	ContextAutoswitch bool   `json:"context_autoswitch"`
+	PrimaryDomain     string `json:"primary_domain,omitempty"`
 }
 
 func Defaults() ProfileConfig {
@@ -26,6 +27,7 @@ func Defaults() ProfileConfig {
 		Verbosity:         "short",
 		AskBeforeMutation: true,
 		ContextAutoswitch: true,
+		PrimaryDomain:     "dev",
 	}
 }
 
@@ -33,6 +35,7 @@ var (
 	validLanguages = []string{"es", "en"}
 	validTones     = []string{"argentino", "neutral", "english"}
 	validVerbosity = []string{"short", "balanced", "verbose"}
+	validDomains   = []string{"dev", "creative", "strategy", "research"}
 )
 
 func ProfilePath() (string, error) {
@@ -64,6 +67,9 @@ func (c ProfileConfig) Validate() error {
 	}
 	if !isOneOf(c.Verbosity, validVerbosity) {
 		return fmt.Errorf("invalid verbosity %q (valid: %s)", c.Verbosity, strings.Join(validVerbosity, ", "))
+	}
+	if !isOneOf(c.PrimaryDomain, validDomains) {
+		return fmt.Errorf("invalid primary domain %q (valid: %s)", c.PrimaryDomain, strings.Join(validDomains, ", "))
 	}
 	return nil
 }
