@@ -4,7 +4,8 @@ $ProgressPreference = 'SilentlyContinue'
 # Run with:
 # powershell -ExecutionPolicy Bypass -File .\install.ps1
 
-if (-not $IsWindows) {
+$onWindows = ($IsWindows -eq $true) -or ($env:OS -eq 'Windows_NT')
+if (-not $onWindows) {
   Write-Error "This installer only supports Windows."
   exit 1
 }
