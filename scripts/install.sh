@@ -3,6 +3,12 @@ set -euo pipefail
 
 die() { echo "ERROR: $*" >&2; exit 1; }
 
+on_init_error() {
+  local line=${1:-unknown}
+  echo "ERROR: nt-cli init --non-interactive failed near line ${line}." >&2
+  echo "ERROR: Fix the init error above, then run '$HOME/.local/bin/nt-cli init --non-interactive'." >&2
+}
+
 # 1. OS/arch detection
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
@@ -89,7 +95,9 @@ if [[ -f "$BUNDLED_AGENTS" ]]; then
 fi
 
 # 10. Run nt-cli init (idempotent)
-"$HOME/.local/bin/nt-cli" init --non-interactive || true
+trap 'on_init_error $LINENO' ERR
+"$HOME/.local/bin/nt-cli" init --non-interactive
+trap - ERR
 
 # 11. PATH hint
 case ":$PATH:" in
