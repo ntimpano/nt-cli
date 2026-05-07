@@ -89,6 +89,24 @@ func TestMCP_ProjectProbe_DoesNotMutate(t *testing.T) {
 	}
 }
 
+// TestMCP_ProjectProbe_EmptyCWDErrors verifies project_probe returns a tool
+// error when cwd is empty instead of falling back to process working dir.
+func TestMCP_ProjectProbe_EmptyCWDErrors(t *testing.T) {
+	f := newProjectMCPFixture(t)
+
+	result, rpcErr := callTool(t, f.svc, "project_probe", map[string]interface{}{"cwd": ""})
+	if rpcErr != nil {
+		t.Fatalf("unexpected rpc error: %+v", rpcErr)
+	}
+	if result["isError"] != true {
+		t.Fatalf("expected tool error for empty cwd, got %+v", result)
+	}
+	msg := strings.ToLower(toolResultText(t, result))
+	if !strings.Contains(msg, "cwd is required") {
+		t.Fatalf("expected clear cwd required message, got %q", msg)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Task 3.2 — project_confirm, project_current, project_list, project_switch
 // ---------------------------------------------------------------------------
