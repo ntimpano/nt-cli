@@ -46,17 +46,18 @@ type SQLiteStore struct {
 }
 
 func NewSQLiteStore(path string) (*SQLiteStore, error) {
-	// modernc.org/sqlite defaults foreign_keys=OFF per connection. The
-	// driver's DSN syntax (`?_pragma=foreign_keys(1)`) applies the pragma
-	// to every connection the pool opens, which is the only way to keep
-	// ON DELETE CASCADE on memory_relations (v4) consistent across the
-	// *sql.DB pool. Reuses the same form already used by reopenStore().
-	dsn := path + "?_pragma=foreign_keys(1)"
-	db, err := sql.Open("sqlite", dsn)
+	// modernc.org/sqlite defaults foreign_keys=OFF per connection. Keep the
+	// DSN-level pragma so every pooled connection starts with FK enforcement.
+	db, err := sql.Open("sqlite", path+"?_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, err
 	}
+	if err := applyPragmas(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	if err := db.Ping(); err != nil {
+		_ = db.Close()
 		return nil, err
 	}
 	return &SQLiteStore{
@@ -64,6 +65,17 @@ func NewSQLiteStore(path string) (*SQLiteStore, error) {
 		dbPath:    path,
 		backupDir: defaultBackupDir(),
 	}, nil
+}
+
+func applyPragmas(db *sql.DB) error {
+	if _, err := db.Exec(`PRAGMA foreign_keys = ON`); err != nil {
+		return fmt.Errorf("apply pragma foreign_keys: %w", err)
+	}
+	var mode string
+	if err := db.QueryRow(`PRAGMA journal_mode = WAL`).Scan(&mode); err != nil {
+		return fmt.Errorf("apply pragma journal_mode WAL: %w", err)
+	}
+	return nil
 }
 
 // SetBackupDir overrides the directory used for pre-migration snapshots.
@@ -1423,9 +1435,17 @@ func copyFile(src, dst string) error {
 // is usable after a Restore. Kept private — Backup/Restore are the only
 // callers.
 func reopenStore(s *SQLiteStore) error {
-	db, err := sql.Open("sqlite", s.dbPath+"?_pragma=journal_mode(WAL)")
+	db, err := sql.Open("sqlite", s.dbPath+"?_pragma=foreign_keys(1)")
 	if err != nil {
 		return fmt.Errorf("reopen sqlite: %w", err)
+	}
+	if err := applyPragmas(db); err != nil {
+		_ = db.Close()
+		return err
+	}
+	if err := db.Ping(); err != nil {
+		_ = db.Close()
+		return fmt.Errorf("reopen sqlite ping: %w", err)
 	}
 	s.db = db
 	return nil

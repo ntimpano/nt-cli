@@ -2,6 +2,7 @@ package app_test
 
 import (
 	"bytes"
+	"errors"
 	"strings"
 	"testing"
 
@@ -12,11 +13,12 @@ import (
 // so the RunCLI project subcommands can be exercised.
 type projectMemStore struct {
 	*filterMemStore
-	projects     []app.Project
-	active       app.Project
+	projects        []app.Project
+	active          app.Project
 	setActiveCalled bool
 	lastSetActiveID int64
-	backupCalled bool
+	backupCalled    bool
+	backupErr       error
 }
 
 func newProjectMemStore() *projectMemStore {
@@ -29,7 +31,7 @@ func newProjectMemStore() *projectMemStore {
 }
 
 func (p *projectMemStore) ListProjects() ([]app.Project, error) { return p.projects, nil }
-func (p *projectMemStore) GetActive() (app.Project, error)       { return p.active, nil }
+func (p *projectMemStore) GetActive() (app.Project, error)      { return p.active, nil }
 func (p *projectMemStore) SetActive(id int64) error {
 	p.setActiveCalled = true
 	p.lastSetActiveID = id
@@ -48,7 +50,7 @@ func (p *projectMemStore) CreateProject(in app.ProjectInput) (app.Project, error
 func (p *projectMemStore) FindByFingerprint(fp string) (*app.Project, error) { return nil, nil }
 func (p *projectMemStore) Backup(dst string) error {
 	p.backupCalled = true
-	return nil
+	return p.backupErr
 }
 func (p *projectMemStore) Restore(src string) error { return nil }
 
@@ -126,6 +128,24 @@ func TestRunCLI_ProjectSwitch_InvalidID_Fails(t *testing.T) {
 	}
 	if !strings.Contains(stderr, "id") {
 		t.Errorf("expected error mentioning id, got: %q", stderr)
+	}
+}
+
+func TestRunCLI_ProjectSwitch_BackupFailureAbortsSwitch(t *testing.T) {
+	store := newProjectMemStore()
+	store.backupErr = errors.New("disk full")
+	code, out, stderr := runCLIProject(t, store, "project", "switch", "2")
+	if code == 0 {
+		t.Fatalf("expected non-zero exit on backup failure")
+	}
+	if store.setActiveCalled {
+		t.Fatalf("switch must not run when backup fails")
+	}
+	if !strings.Contains(strings.ToLower(stderr), "pre-switch backup") {
+		t.Fatalf("expected pre-switch backup error in stderr, got %q", stderr)
+	}
+	if strings.Contains(strings.ToLower(out), "switched") {
+		t.Fatalf("unexpected success output when backup fails: %q", out)
 	}
 }
 
