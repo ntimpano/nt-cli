@@ -771,10 +771,16 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 			if err := json.Unmarshal(params.Arguments, &args); err != nil || strings.TrimSpace(args.Candidate) == "" {
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("candidate is required")}, true
 			}
-			if err := svc.ProjectEng.Confirm(strings.TrimSpace(args.Candidate)); err != nil {
+			candidate := strings.TrimSpace(args.Candidate)
+			if err := svc.ProjectEng.Confirm(candidate); err != nil {
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
 			}
-			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("confirmed project %q", strings.TrimSpace(args.Candidate)))}, true
+			p, err := svc.ProjectEng.Current()
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			svc.SetActiveProject(p.ID)
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("confirmed project %q", candidate))}, true
 
 		case "project_current":
 			if svc.ProjectEng == nil {
