@@ -72,7 +72,7 @@ func TestToolSchemas_Unchanged(t *testing.T) {
 	}{
 		"local_save":   {props: []string{"content", "title", "type", "topic_key", "scope"}, required: []string{"content"}},
 		"local_recall": {props: []string{"query", "limit"}, required: []string{"query"}, allowExtra: true},
-		"local_list":   {props: []string{"limit"}, required: nil},
+		"local_list":   {props: []string{"limit"}, required: nil, allowExtra: true},
 		"local_get":    {props: []string{"id"}, required: []string{"id"}},
 		"local_update": {props: []string{"id", "content"}, required: []string{"id", "content"}},
 		"local_delete": {props: []string{"id"}, required: []string{"id"}},

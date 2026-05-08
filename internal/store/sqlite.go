@@ -219,10 +219,9 @@ func (s *SQLiteStore) Init() error {
 		return err
 	}
 
-	// M3 — content_hash column on memory_items powers the import dedupe
-	// key `(topic_key, content_hash)`. Column was added with the rest of
-	// the additive ALTERs above; the index is created here so it lives
-	// inside the v3 migration step alongside the sessions table.
+	// M3 — content_hash column on memory_items powers the import dedupe path.
+	// Base index is created on legacy key columns; M5 upgrades it to include
+	// project_id once that column exists.
 	if _, err := tx.Exec(
 		`CREATE INDEX IF NOT EXISTS idx_memory_items_import_dedupe
 		 ON memory_items(topic_key, content_hash)`,
@@ -324,9 +323,30 @@ func (s *SQLiteStore) Init() error {
 	); err != nil {
 		return err
 	}
+	// Upgrade import dedupe index to include project_id (PR2b semantics).
+	if _, err := tx.Exec(`DROP INDEX IF EXISTS idx_memory_items_import_dedupe`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_memory_items_import_dedupe
+		 ON memory_items(project_id, topic_key, content_hash)`,
+	); err != nil {
+		return err
+	}
 	// Backfill: ensure a "default" project exists, then map every legacy
 	// row to it. INSERT OR IGNORE keeps this idempotent across re-runs
 	// (the UNIQUE constraint on name is the dedupe key).
+	//
+	// Rollback SQL (operational, pre-UNIQUE-hardening):
+	//   UPDATE memory_items
+	//   SET project_id = NULL
+	//   WHERE project_id = (SELECT id FROM projects WHERE name = 'default');
+	//
+	//   DELETE FROM active_project WHERE id = 1;
+	//   DELETE FROM projects WHERE name = 'default';
+	//
+	// In practice, restore from the pre-migration snapshot is preferred for
+	// full reversibility because it guarantees exact data restoration.
 	nowStamp := time.Now().UTC().Format(time.RFC3339)
 	if _, err := tx.Exec(
 		`INSERT OR IGNORE INTO projects(name, root_path, fingerprint, created_at)
@@ -542,8 +562,8 @@ func (s *SQLiteStore) Save(content string, createdAt time.Time) (int64, error) {
 
 // SaveWithMeta persists a row with optional structured metadata. When
 // req.TopicKey is non-empty the call performs an application-level upsert:
-// the latest matching (scope, topic_key) row is UPDATEd in place; otherwise
-// a new row is INSERTed. The application-level path was chosen over a unique
+// the latest matching (scope, topic_key, project_id) row is UPDATEd in place;
+// otherwise a new row is INSERTed. The application-level path was chosen over a unique
 // DB constraint to keep future history/versioning flexibility open per
 // design.md §FTS+Topic strategy.
 func (s *SQLiteStore) SaveWithMeta(req app.SaveRequest) (int64, error) {
@@ -553,10 +573,12 @@ func (s *SQLiteStore) SaveWithMeta(req app.SaveRequest) (int64, error) {
 		var existingID int64
 		err := s.db.QueryRow(
 			`SELECT id FROM memory_items
-			 WHERE topic_key = ? AND COALESCE(scope, '') = COALESCE(?, '')
+			 WHERE topic_key = ?
+			   AND COALESCE(scope, '') = COALESCE(?, '')
+			   AND COALESCE(project_id, 0) = COALESCE(?, 0)
 			 ORDER BY datetime(updated_at) DESC, id DESC
 			 LIMIT 1`,
-			req.TopicKey, req.Scope,
+			req.TopicKey, req.Scope, req.ProjectID,
 		).Scan(&existingID)
 		if err == nil {
 			if _, err := s.db.Exec(
@@ -1218,7 +1240,7 @@ func scanBehavioralObservation(scanner interface{ Scan(dest ...any) error }) (Be
 }
 
 // ImportRecords inserts a batch of records, deduping each row on the
-// composite key `(topic_key, sha256(content))`. Rows that match an
+// composite key `(project_id, topic_key, sha256(content))`. Rows that match an
 // existing key are counted as Skipped and not written. Empty content
 // is also skipped (defensive — input parsers should already filter).
 //
@@ -1237,6 +1259,11 @@ func (s *SQLiteStore) ImportRecords(rows []app.ImportRecord) (app.ImportResult, 
 	defer func() { _ = tx.Rollback() }()
 
 	now := time.Now().UTC().Format(time.RFC3339)
+	active, err := s.GetActive()
+	if err != nil {
+		return res, err
+	}
+	activeProjectID := active.ID
 	for _, r := range rows {
 		content := r.Content
 		if strings.TrimSpace(content) == "" {
@@ -1250,10 +1277,11 @@ func (s *SQLiteStore) ImportRecords(rows []app.ImportRecord) (app.ImportResult, 
 		var existing int64
 		err := tx.QueryRow(
 			`SELECT id FROM memory_items
-			 WHERE COALESCE(topic_key, '') = COALESCE(?, '')
+			 WHERE project_id = ?
+			   AND COALESCE(topic_key, '') = COALESCE(?, '')
 			   AND content_hash = ?
 			 LIMIT 1`,
-			r.TopicKey, hash,
+			activeProjectID, r.TopicKey, hash,
 		).Scan(&existing)
 		if err == nil {
 			res.Skipped++
@@ -1272,9 +1300,9 @@ func (s *SQLiteStore) ImportRecords(rows []app.ImportRecord) (app.ImportResult, 
 			scope = "project"
 		}
 		if _, err := tx.Exec(
-			`INSERT INTO memory_items(content, created_at, updated_at, title, type, topic_key, scope, content_hash)
-			 VALUES(?, ?, ?, ?, ?, ?, ?, ?)`,
-			content, now, now, r.Title, typ, r.TopicKey, scope, hash,
+			`INSERT INTO memory_items(content, created_at, updated_at, title, type, topic_key, scope, content_hash, project_id)
+			 VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			content, now, now, r.Title, typ, r.TopicKey, scope, hash, activeProjectID,
 		); err != nil {
 			return res, err
 		}

@@ -505,8 +505,24 @@ func (s *Service) ContextOpts(n int, scope string, allProjects bool) ([]MemoryIt
 }
 
 func (s *Service) List(limit int) ([]MemoryItem, error) {
+	return s.ListOpts(limit, false)
+}
+
+// ListOpts is the full list surface with optional all-project bypass.
+// When an active project is set and the store supports FilterStore, list is
+// scoped to that project by default. allProjects=true bypasses the scope.
+func (s *Service) ListOpts(limit int, allProjects bool) ([]MemoryItem, error) {
 	if limit <= 0 {
 		limit = 10
+	}
+	if s.activeProjectID > 0 {
+		if filt, ok := s.repo.(FilterStore); ok {
+			return filt.ListFiltered(ListOptions{
+				Limit:       limit,
+				ProjectID:   s.activeProjectID,
+				AllProjects: allProjects,
+			})
+		}
 	}
 	return s.repo.List(limit)
 }
