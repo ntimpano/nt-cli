@@ -31,5 +31,5 @@ Objetivo: minimizar consumo de tokens manteniendo calidad y trazabilidad.
 
 ## 4) Memoria
 
-- Source of truth: `ntcli_local_*`.
-- Fallback: Engram solo si no hay dato suficiente.
+- Source of truth y único backend: `ntcli_local_*`.
+- Engram NO existe en este stack. Nunca llamar `mem_*`.

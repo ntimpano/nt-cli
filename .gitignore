@@ -2,5 +2,3 @@
 *.db
 *.log
 .DS_Store
-.engram/
-openspec/sdd/
