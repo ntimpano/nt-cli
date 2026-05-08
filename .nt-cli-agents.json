@@ -22,6 +22,7 @@
         "nt-research-challenge": "allow",
         "nt-research-conclude": "allow",
         "nt-research-document": "allow",
+        "nt-researcher": "allow",
         "nt-sdd-apply": "allow",
         "nt-sdd-archive": "allow",
         "nt-sdd-design": "allow",
@@ -251,6 +252,16 @@
       "edit": true,
       "read": true,
       "write": true
+    }
+  },
+  "nt-researcher": {
+    "description": "Research agent that searches the web, triangulates sources and delivers structured conclusions.",
+    "mode": "subagent",
+    "model": "github-copilot/claude-opus-4.7",
+    "prompt": "{file:/opt/nt-cli/prompts/research/nt-researcher.md}",
+    "tools": {
+      "tavily_search": true,
+      "tavily_extract": true
     }
   },
   "nt-sdd-apply": {
