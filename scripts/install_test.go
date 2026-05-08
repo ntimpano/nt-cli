@@ -603,3 +603,45 @@ func TestInstall_SuccessMessage(t *testing.T) {
 		t.Errorf("expected version in success message, got:\n%s", out)
 	}
 }
+
+func TestInstall_FailsFastWhenInitFails(t *testing.T) {
+	requireBash(t)
+	requireJq(t)
+
+	fileDir := t.TempDir()
+	buildFakeRelease(t, fileDir, map[string][]byte{
+		"nt-cli": []byte("#!/usr/bin/env bash\nif [[ \"$1\" == \"init\" ]]; then\n  echo \"init failed\" >&2\n  exit 42\nfi\nexit 0\n"),
+	})
+
+	homeDir := t.TempDir()
+	ensureOpenCodeDir(t, homeDir)
+	env, _ := fakeCurlEnv(t, fileDir)
+	out, err := runInstall(t, homeDir, env)
+	if err == nil {
+		t.Fatalf("expected install to fail when nt-cli init fails, got success:\n%s", out)
+	}
+	if !strings.Contains(out, "nt-cli init --non-interactive") {
+		t.Fatalf("expected actionable init failure message, got:\n%s", out)
+	}
+}
+
+func TestInstall_SmokeSuccessStillPasses(t *testing.T) {
+	requireBash(t)
+	requireJq(t)
+
+	fileDir := t.TempDir()
+	buildFakeRelease(t, fileDir, map[string][]byte{
+		"nt-cli": []byte("#!/usr/bin/env bash\nif [[ \"$1\" == \"init\" ]]; then\n  exit 0\nfi\nexit 0\n"),
+	})
+
+	homeDir := t.TempDir()
+	ensureOpenCodeDir(t, homeDir)
+	env, _ := fakeCurlEnv(t, fileDir)
+	out, err := runInstall(t, homeDir, env)
+	if err != nil {
+		t.Fatalf("expected successful install smoke test, got error: %v\n%s", err, out)
+	}
+	if !strings.Contains(out, "installed successfully") {
+		t.Fatalf("expected install success output, got:\n%s", out)
+	}
+}
