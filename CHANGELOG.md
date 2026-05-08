@@ -23,3 +23,9 @@ Migration note:
 - Restore ahora reabre SQLite reaplicando pragmas de integridad (`foreign_keys=ON`, `journal_mode=WAL`), preservando cascadas FK post-restore.
 - `project_switch` (MCP y CLI) usa backups pre-switch únicos con patrón `pre-switch-<projectID>-<unix>.db`, deja de ocultar fallas de backup y aborta el switch cuando el backup falla.
 - Se agrega retención keep-last-5 por proyecto para snapshots pre-switch, eliminando backups más viejos del mismo proyecto.
+
+### MCP handlers parity (cluster 4, PR4)
+- `local_session_end` ahora aplica cierre estricto (`SessionEndStrict`): falla con `summary_required` si no existe `local_session_summary` previo para la sesión.
+- `project_confirm` ahora mantiene la API pública y agrega create-if-new: si el candidato no existe, lo crea y lo deja activo en la misma operación.
+- El schema del tool `relate` ahora publica `relation_type` con `enum` alineado al whitelist real (`related`, `supersedes`, `conflicts_with`, `refines`, `depends_on`).
+- Se estandariza validación de argumentos MCP con `decodeArgs[T]` y respuesta JSON-RPC consistente `-32602 invalid arguments` en handlers que antes aceptaban unmarshal silencioso.

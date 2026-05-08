@@ -8,6 +8,7 @@ import (
 	"nt-cli/internal/app"
 	"nt-cli/internal/store"
 )
+
 // ---------------------------------------------------------------------------
 // Test store helpers: projectMemStoreMCP layers ProjectStore capability on
 // top of the existing memStore so Service auto-wires a ProjectEngine.
@@ -200,9 +201,9 @@ func TestMCP_ProjectConfirm_SetsActive(t *testing.T) {
 	}
 }
 
-// TestMCP_ProjectConfirm_UnknownReturnsError verifies project_confirm
-// with a non-existent candidate returns a tool error (not a crash).
-func TestMCP_ProjectConfirm_UnknownReturnsError(t *testing.T) {
+// TestMCP_ProjectConfirm_UnknownCreatesAndSwitches verifies BUG-10: when
+// candidate does not exist, project_confirm creates it and activates it.
+func TestMCP_ProjectConfirm_UnknownCreatesAndSwitches(t *testing.T) {
 	f := newProjectMCPFixture(t)
 	result, rpcErr := callTool(t, f.svc, "project_confirm", map[string]interface{}{
 		"candidate": "no-such-project",
@@ -210,8 +211,12 @@ func TestMCP_ProjectConfirm_UnknownReturnsError(t *testing.T) {
 	if rpcErr != nil {
 		t.Fatalf("unexpected rpc error: %+v", rpcErr)
 	}
-	if result["isError"] != true {
-		t.Fatalf("expected tool error for unknown candidate, got %+v", result)
+	if result["isError"] == true {
+		t.Fatalf("expected create+switch for unknown candidate, got error %+v", result)
+	}
+	cur, _ := callTool(t, f.svc, "project_current", nil)
+	if !strings.Contains(strings.ToLower(toolResultText(t, cur)), "no-such-project") {
+		t.Fatalf("expected unknown candidate to become active project")
 	}
 }
 
@@ -590,7 +595,6 @@ func TestMCP_ScopedRecall_BypassWithAllProjects(t *testing.T) {
 func appProjectInput(name, rootPath string) app.ProjectInput {
 	return app.ProjectInput{Name: name, RootPath: rootPath, Fingerprint: ""}
 }
-
 
 func toolResultText(t *testing.T, result map[string]interface{}) string {
 	t.Helper()
