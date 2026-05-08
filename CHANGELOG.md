@@ -4,9 +4,11 @@
 
 ### BREAKING
 - `local_list` ahora filtra por proyecto activo por default cuando existe contexto de proyecto.
+- `local_list` ahora responde `{ "items": [...] }` con claves snake_case (`topic_key`, `created_at`, `updated_at`, `project_id`, etc.) en lugar del JSON crudo camelCase del struct.
 
 Migration note:
 - Si necesitás el comportamiento global anterior (cross-project), usá `all_projects=true` en `local_list`.
+- Si consumís `local_list` desde fuera, actualizá el parser para leer `items` y claves snake_case.
 
 ### Security hardening
 - MCP debug logging is now opt-in only via `NT_CLI_MCP_DEBUG=1` and writes to `~/.nt-cli/logs/mcp.log` with file mode `0600`.

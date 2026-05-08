@@ -121,9 +121,9 @@ Si no pasás flags, `save` usa el path legacy y no toca la metadata. Si pasás c
 | `local_get` | Obtiene una nota por id | `{ id: integer }` |
 | `local_update` | Actualiza el contenido de una nota por id | `{ id: integer, content: string }` |
 | `local_delete` | Elimina una nota por id | `{ id: integer }` |
-| `local_session_start` | Inicia una sesión local | `{ id: string }` |
-| `local_session_summary` | Adjunta resumen a la sesión | `{ id: string, summary: string }` |
-| `local_session_end` | Cierra la sesión local | `{ id: string }` |
+| `local_session_start` | Inicia una sesión local | `{ session_id: string }` |
+| `local_session_summary` | Adjunta resumen a la sesión | `{ session_id: string, summary: string }` |
+| `local_session_end` | Cierra la sesión local | `{ session_id: string }` |
 | `local_import` | Importa observaciones desde JSON (idempotente) | `{ path: string, dry_run?: boolean }` |
 | `local_backup` | Snapshot portable del store local | `{ path: string }` |
 | `local_restore` | Restaura el store local desde un snapshot | `{ path: string }` |

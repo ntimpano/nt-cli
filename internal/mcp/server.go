@@ -401,7 +401,11 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 		if isNotification {
 			return response{}, false
 		}
-		return response{JSONRPC: "2.0", ID: req.ID, Result: resourcesReadResult(req.Params, svc)}, true
+		res, rpcErr := resourcesReadResult(req.Params, svc)
+		if rpcErr != nil {
+			return response{JSONRPC: "2.0", ID: req.ID, Error: rpcErr}, true
+		}
+		return response{JSONRPC: "2.0", ID: req.ID, Result: res}, true
 
 	case "prompts/list":
 		if isNotification {
@@ -771,10 +775,16 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 			if err := json.Unmarshal(params.Arguments, &args); err != nil || strings.TrimSpace(args.Candidate) == "" {
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("candidate is required")}, true
 			}
-			if err := svc.ProjectEng.Confirm(strings.TrimSpace(args.Candidate)); err != nil {
+			candidate := strings.TrimSpace(args.Candidate)
+			if err := svc.ProjectEng.Confirm(candidate); err != nil {
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
 			}
-			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("confirmed project %q", strings.TrimSpace(args.Candidate)))}, true
+			p, err := svc.ProjectEng.Current()
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
+			}
+			svc.SetActiveProject(p.ID)
+			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("confirmed project %q", candidate))}, true
 
 		case "project_current":
 			if svc.ProjectEng == nil {
@@ -1375,22 +1385,23 @@ type resourcesReadParams struct {
 // resourcesReadResult handles the resources/read call. The only supported URI
 // is "nt-cli://project/active" which returns the current active project as JSON.
 // Unknown URIs return an RPC error per the MCP protocol spec.
-func resourcesReadResult(rawParams json.RawMessage, svc *app.Service) interface{} {
-	var p resourcesReadParams
-	if len(rawParams) > 0 {
-		_ = json.Unmarshal(rawParams, &p)
+func resourcesReadResult(rawParams json.RawMessage, svc *app.Service) (interface{}, *rpcError) {
+	args, err := decodeArgs[resourcesReadParams](rawParams)
+	if err != nil {
+		return nil, &rpcError{Code: -32602, Message: "invalid arguments"}
 	}
+	p := args
 	if p.URI != "nt-cli://project/active" {
 		return map[string]interface{}{
 			"error": fmt.Sprintf("resource not found: %q", p.URI),
-		}
+		}, nil
 	}
 	if svc.ProjectEng == nil {
-		return map[string]interface{}{"error": "project engine not available"}
+		return map[string]interface{}{"error": "project engine not available"}, nil
 	}
 	proj, err := svc.ProjectEng.Current()
 	if err != nil {
-		return map[string]interface{}{"error": err.Error()}
+		return map[string]interface{}{"error": err.Error()}, nil
 	}
 	payload, _ := json.Marshal(projectPayload(proj))
 	return map[string]interface{}{
@@ -1401,7 +1412,7 @@ func resourcesReadResult(rawParams json.RawMessage, svc *app.Service) interface{
 				"text":     string(payload),
 			},
 		},
-	}
+	}, nil
 }
 
 // Mirrors project_runner.go's preBackupPath convention.
