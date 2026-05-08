@@ -197,6 +197,17 @@ type parityScorecardArgs struct {
 	SoakDays               int `json:"soak_days"`
 }
 
+func decodeArgs[T any](raw json.RawMessage) (T, error) {
+	var out T
+	if len(raw) == 0 {
+		return out, nil
+	}
+	if err := json.Unmarshal(raw, &out); err != nil {
+		return out, err
+	}
+	return out, nil
+}
+
 func (a parityScorecardArgs) toSignals() parity.ScorecardSignals {
 	return parity.ScorecardSignals{
 		CoreOps:                a.CoreOps,
@@ -510,8 +521,10 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(string(b))}, true
 
 		case "local_context":
-			var args localContextArgs
-			_ = json.Unmarshal(params.Arguments, &args)
+			args, err := decodeArgs[localContextArgs](params.Arguments)
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+			}
 			items, err := svc.ContextOpts(args.N, args.Scope, args.AllProjects)
 			if err != nil {
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
@@ -586,7 +599,7 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 			if err := json.Unmarshal(params.Arguments, &args); err != nil {
 				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
 			}
-			if err := svc.SessionEnd(args.SessionID); err != nil {
+			if err := svc.SessionEndStrict(args.SessionID); err != nil {
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError(err.Error())}, true
 			}
 			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("session ended %s", strings.TrimSpace(args.SessionID)))}, true
@@ -722,8 +735,10 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 			if svc.ProjectEng == nil {
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("project engine not available")}, true
 			}
-			var args projectProbeArgs
-			_ = json.Unmarshal(params.Arguments, &args)
+			args, err := decodeArgs[projectProbeArgs](params.Arguments)
+			if err != nil {
+				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
+			}
 			cwd := strings.TrimSpace(args.CWD)
 			if cwd == "" {
 				return response{JSONRPC: "2.0", ID: req.ID, Result: toolError("cwd is required: pass the working directory of the project you want to probe")}, true
@@ -1218,13 +1233,13 @@ func toolsListResult() map[string]interface{} {
 		tools = append(tools,
 			map[string]interface{}{
 				"name":        "relate",
-				"description": "Crea una relación dirigida entre dos memorias locales (memory_relations). Gated por NTCLI_FF_GRAPH=1. relation_type debe pertenecer al whitelist (related, refines, supersedes, derives_from, mentions).",
+				"description": "Crea una relación dirigida entre dos memorias locales (memory_relations). Gated por NTCLI_FF_GRAPH=1. relation_type debe pertenecer al whitelist (related, supersedes, conflicts_with, refines, depends_on).",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"source_id":     map[string]interface{}{"type": "integer"},
 						"target_id":     map[string]interface{}{"type": "integer"},
-						"relation_type": map[string]interface{}{"type": "string"},
+						"relation_type": map[string]interface{}{"type": "string", "enum": app.AllowedRelationTypes},
 					},
 					"required": []string{"source_id", "target_id", "relation_type"},
 				},

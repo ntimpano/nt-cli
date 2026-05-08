@@ -22,34 +22,38 @@ type sessionMemStore struct {
 
 	lastID      string
 	lastSummary string
+	events      map[string][]app.SessionEvent
 }
 
 func newSessionMemStoreMCP() *sessionMemStore {
-	return &sessionMemStore{memStore: newMemStore()}
+	return &sessionMemStore{memStore: newMemStore(), events: map[string][]app.SessionEvent{}}
 }
 
-func (s *sessionMemStore) SessionStart(id string, _ time.Time) error {
+func (s *sessionMemStore) SessionStart(id string, at time.Time) error {
 	s.startCalls++
 	s.lastID = id
+	s.events[id] = append(s.events[id], app.SessionEvent{SessionID: id, Kind: "start", CreatedAt: at.UTC()})
 	return nil
 }
 
-func (s *sessionMemStore) SessionEnd(id string, _ time.Time) error {
+func (s *sessionMemStore) SessionEnd(id string, at time.Time) error {
 	s.endCalls++
 	s.lastID = id
+	s.events[id] = append(s.events[id], app.SessionEvent{SessionID: id, Kind: "end", CreatedAt: at.UTC()})
 	return nil
 }
 
-func (s *sessionMemStore) SessionSummary(id, summary string, _ time.Time) error {
+func (s *sessionMemStore) SessionSummary(id, summary string, at time.Time) error {
 	s.summaryCalls++
 	s.lastID = id
 	s.lastSummary = summary
+	s.events[id] = append(s.events[id], app.SessionEvent{SessionID: id, Kind: "summary", Summary: summary, CreatedAt: at.UTC()})
 	return nil
 }
 
 func (s *sessionMemStore) SessionEvents(id string) ([]app.SessionEvent, error) {
 	s.lastID = id
-	return nil, nil
+	return s.events[id], nil
 }
 
 func (s *sessionMemStore) ActiveSessionID() (string, error) {
@@ -107,10 +111,16 @@ func TestMCP_LocalSessionStart_Dispatches(t *testing.T) {
 	}
 }
 
-// TestMCP_LocalSessionEnd_Dispatches mirrors start.
+// TestMCP_LocalSessionEnd_Dispatches mirrors start under the strict
+// close contract: end succeeds when a summary already exists.
 func TestMCP_LocalSessionEnd_Dispatches(t *testing.T) {
 	store := newSessionMemStoreMCP()
 	svc := app.NewService(store)
+
+	_, _ = callTool(t, svc, "local_session_summary", map[string]interface{}{
+		"session_id": "sess-2",
+		"summary":    "done",
+	})
 
 	result, rpcErr := callTool(t, svc, "local_session_end", map[string]interface{}{
 		"session_id": "sess-2",

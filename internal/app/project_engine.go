@@ -79,16 +79,27 @@ func (e *projectEngineImpl) Probe(cwd string) (ProbeResult, error) {
 // the most recent Probe call for cwd. Callers must hold the candidate name
 // from ProbeResult.Candidate. For now it switches by name lookup.
 func (e *projectEngineImpl) Confirm(candidate string) error {
+	clean := strings.TrimSpace(candidate)
+	if clean == "" {
+		return errors.New("confirm: candidate is empty")
+	}
 	projects, err := e.store.ListProjects()
 	if err != nil {
 		return fmt.Errorf("confirm: list projects: %w", err)
 	}
 	for _, p := range projects {
-		if p.Name == candidate {
+		if p.Name == clean {
 			return e.store.SetActive(p.ID)
 		}
 	}
-	return fmt.Errorf("confirm: no project named %q", candidate)
+	created, err := e.store.CreateProject(ProjectInput{Name: clean})
+	if err != nil {
+		return fmt.Errorf("confirm: create project %q: %w", clean, err)
+	}
+	if err := e.store.SetActive(created.ID); err != nil {
+		return fmt.Errorf("confirm: set active %q: %w", clean, err)
+	}
+	return nil
 }
 
 // List returns all projects from the store.
