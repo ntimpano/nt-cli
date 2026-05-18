@@ -20,6 +20,8 @@ See `_shared/skill-resolver.md` for the full resolution protocol.
 | when reviewing code for security issues, auditing a PR, running a security pass, or the user asks for a security check | security-review | /home/ad373971/.config/opencode/skills/security-review/SKILL.md |
 | when fixing a bug, investigating an error, diagnosing unexpected behavior, or the user reports something is broken | bug-fix | /home/ad373971/.config/opencode/skills/bug-fix/SKILL.md |
 | when writing or updating documentation, adding docstrings/JSDoc/godoc, creating READMEs, documenting APIs, or the user asks to document something | doc-writer | /home/ad373971/.config/opencode/skills/doc-writer/SKILL.md |
+| when implementing changes in Python with TDD, writing Python tests, or testing lambdas/AWS integrations with pytest | python-testing-tdd | /home/ad373971/.config/opencode/skills/python-testing-tdd/SKILL.md |
+| when creating or updating a pull request in Azure DevOps, resolving conflicts, or verifying post-merge | azure-pr-workflow | /home/ad373971/.config/opencode/skills/azure-pr-workflow/SKILL.md |
 
 ## Compact Rules
 
@@ -118,6 +120,23 @@ See `_shared/skill-resolver.md` for the full resolution protocol.
 - For inline docs: use JSDoc (TS/JS), Google-style (Python), godoc (Go), rustdoc (Rust).
 - For READMEs: structure with Quick Start, Usage, Configuration, API, Architecture, Development, Contributing.
 - Flag if a function/module is too complex to document simply as a design smell.
+
+### python-testing-tdd
+- TDD real: RED → GREEN → REFACTOR; sin RED real no fue TDD.
+- Tests de runtime (comportamiento observable), no solo inspección de source/AST.
+- Mockear boto3 en bordes del sistema; validar llamadas esperadas y payloads.
+- CDK: synth + asserts sobre definición de recursos (state machines, timeouts, retries, permisos).
+- Evidencia ejecutada obligatoria: comando exacto (`pytest ...`) + resultado (pass/fail).
+
+### azure-pr-workflow
+- Branch naming: `feat/<work-item-id>-<desc>` o `fix/<work-item-id>-<desc>`, minúsculas y guiones.
+- Completar `pull_request_template.md` exactamente, sin secciones vacías.
+- Reviewer requerido antes de avanzar; no auto-approve ni merge sin revisión humana.
+- Link obligatorio a work items (User Story + tasks técnicas).
+- Resolver conflictos localmente (rebase/merge), validar con tests, luego push.
+- Verificación post-merge: pipeline status + cierre de work items + branch alineado.
+- Preflight gates bloqueantes: template completo, idioma es-AR, branch naming válido.
+- Formato de error bloqueante: `PR_BLOCKED: <gate> | fix: <action>`
 
 ## Project Conventions
 
