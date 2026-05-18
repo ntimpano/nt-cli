@@ -1,16 +1,34 @@
 # nt-cli
 
-Local-first CLI de memoria personal en Go + SQLite, con modo MCP.
+[![Go Version](https://img.shields.io/badge/go-1.22%2B-00ADD8?logo=go)](./go.mod)
+[![Build](https://github.com/ntimpano/nt-cli/actions/workflows/release.yml/badge.svg)](https://github.com/ntimpano/nt-cli/actions/workflows/release.yml)
+[![License](https://img.shields.io/badge/license-unspecified-lightgrey)](#licencia)
 
-## Prerequisites
+**CLI de memoria personal local-first para agentes de IA**, con persistencia en SQLite y modo MCP para integrarlo con OpenCode.
 
-- **OpenCode (required)**: https://opencode.ai  
-  nt-cli corre como servidor MCP dentro de OpenCode.
-- **Go 1.22+** (solo para la vía `go install`)
+<!-- Placeholder demo -->
+<!-- ![demo](docs/demo.gif) -->
 
-## Quick Start
+---
 
-### Install
+## ¿Qué es nt-cli?
+
+`nt-cli` te deja guardar, buscar y recuperar contexto útil de forma persistente, **sin depender de servicios externos**.  
+Está pensado para que vos (y tus agentes) no pierdan decisiones, aprendizajes ni estado entre sesiones.
+
+## Features
+
+- Local-first (todo queda en tu máquina)
+- SQLite como base local (`~/.nt-cli/data.db`)
+- Búsqueda full-text con FTS5
+- Servidor MCP para OpenCode (`nt-cli mcp`)
+- Manejo de sesiones (`start`, `summary`, `end`)
+- Backup / restore atómico
+- Scope por proyecto (contexto más limpio por repo)
+
+## Quick Install
+
+### Linux / macOS
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/ntimpano/nt-cli/main/scripts/install.sh | bash
@@ -22,125 +40,69 @@ curl -fsSL https://raw.githubusercontent.com/ntimpano/nt-cli/main/scripts/instal
 powershell -ExecutionPolicy Bypass -Command "& { iwr https://raw.githubusercontent.com/ntimpano/nt-cli/main/scripts/install.ps1 -UseBasicParsing | iex }"
 ```
 
-Requiere OpenCode (ver [Prerequisites](#prerequisites)).
+> Requiere OpenCode: https://opencode.ai
 
-El instalador de Windows instala `nt-cli.exe` en `%LOCALAPPDATA%\nt-cli` y mergea agentes `nt-*` en tu configuración de OpenCode (`%APPDATA%\opencode\opencode.json` o `%USERPROFILE%\.config\opencode\opencode.json`).
-
-> Nota sobre Execution Policy: el comando usa `-ExecutionPolicy Bypass` para esta ejecución del instalador.
-
-Requires: `curl`, `jq`.
-
-Installs `nt-cli` to `~/.local/bin` and merges `nt-*` agents into `~/.config/opencode/opencode.json`.
-
-### Upgrade
+## Quick Start (30 segundos)
 
 ```bash
-NT_CLI_VERSION=v1.2.0 curl -fsSL https://raw.githubusercontent.com/ntimpano/nt-cli/main/scripts/install.sh | bash
-```
-
-### Usage
-
-```bash
-# Initialize nt-cli: runtime, model, domain, persona
 nt-cli init
-
-# View context summary
+nt-cli save "Definimos usar JWT para auth"
+nt-cli recall "JWT"
 nt-cli context --summary
-
-# MCP server mode (for opencode)
 nt-cli mcp
 ```
 
-## Comandos
+## Usage
+
+### 1) Guardar notas con metadata
 
 ```bash
-go run ./cmd/nt-cli init   # Initialize nt-cli: configure runtime, AI model, domain, and persona
-go run ./cmd/nt-cli save "idea importante"
-go run ./cmd/nt-cli save --type=decision --topic-key=arch/auth --title="Auth Model" --scope=project "elegimos JWT"
-go run ./cmd/nt-cli recall "idea"
-go run ./cmd/nt-cli list 20
-go run ./cmd/nt-cli get 3
-go run ./cmd/nt-cli update 3 "nuevo contenido"
-go run ./cmd/nt-cli delete 3
-go run ./cmd/nt-cli session start sess-1
-go run ./cmd/nt-cli session summary sess-1 "lo que hicimos"
-go run ./cmd/nt-cli session end sess-1
-go run ./cmd/nt-cli import ./obs.json
-go run ./cmd/nt-cli import --dry-run ./obs.json
-go run ./cmd/nt-cli backup /tmp/snap.db
-go run ./cmd/nt-cli restore /tmp/snap.db
-go run ./cmd/nt-cli doctor
-go run ./cmd/nt-cli mcp
+nt-cli save --title="Modelo de Auth" \
+  --type=decision \
+  --topic-key=arch/auth/jwt \
+  --scope=project \
+  "Elegimos JWT por simplicidad operativa"
 ```
 
-Base local: `~/.nt-cli/data.db`
+- `--title`: título corto
+- `--type`: tipo de nota (`decision`, `discovery`, `bug`, etc.)
+- `--topic-key`: clave estable para agrupar/actualizar conocimiento
+- `--scope`: `project` o `personal`
 
-`get <id>` imprime `id`, contenido y los timestamps `created_at` / `updated_at` en UTC.
-`update <id> "..."` reemplaza el contenido y refresca `updated_at` (UTC); `created_at` no cambia.
-Ambos comandos retornan exit code distinto de cero si el id no existe o es inválido.
+### 2) Buscar con recall
 
-### Metadata estructurada (M1)
+```bash
+nt-cli recall "auth jwt"
+nt-cli recall "migración sqlite"
+```
 
-`save` acepta flags opcionales para clasificar la nota:
+Recupera lo más relevante por texto (FTS5) y te acelera volver al contexto real.
 
-| Flag | Default | Uso |
-|------|---------|-----|
-| `--title=...` | `""` | Título corto, buscable |
-| `--type=...` | `manual` | Categoría: `decision`, `architecture`, `bugfix`, `pattern`, `config`, `discovery`, `learning`, `manual` |
-| `--topic-key=...` | `""` | Clave estable para upsert (mismo `topic_key + scope` reemplaza la observación previa) |
-| `--scope=...` | `project` | `project` o `personal` |
+### 3) Sesiones (start → summary → end)
 
-Si no pasás flags, `save` usa el path legacy y no toca la metadata. Si pasás cualquier flag, los defaults se aplican a los campos faltantes.
+```bash
+nt-cli session start sprint-23
+nt-cli session summary sprint-23 "Cerramos auth + tests de integración"
+nt-cli session end sprint-23
+```
 
-### Recall ranqueado (M2 — storage)
+Útil para dejar trazabilidad de una sesión de trabajo sin mezclarlo con notas sueltas.
 
-`recall` y `local_recall` ahora consultan una tabla virtual FTS5 (`memory_fts`) que se mantiene en sync con `memory_items` mediante triggers. Los resultados se ordenan por `bm25(memory_fts)` (mejor relevancia primero) en vez de por `created_at`.
+### 4) Operación local: backup / restore / doctor
 
-- **Sin cambios para el caller**: la firma de `recall <query>` y `local_recall {query, limit}` no cambia.
-- **Fallback transparente**: si FTS5 no está disponible o la tabla está corrupta, la consulta degrada a `LIKE` ordenado por `created_at DESC` sin reportar error al caller.
-- **Migración aditiva**: al abrir una base previa M1, la migración crea `memory_fts` y reconstruye el índice (`INSERT INTO memory_fts(memory_fts) VALUES('rebuild')`) para que las filas legacy queden buscables sin re-guardar nada.
-- **Latencia objetivo**: p95 < 50ms con 10k filas (medido en `TestRecall_P95Under50ms`).
+```bash
+nt-cli backup /tmp/ntcli-snapshot.db
+nt-cli doctor
+nt-cli restore /tmp/ntcli-snapshot.db
+```
 
-### Sessions, Import, Backup y Doctor (M3)
+- `backup`: snapshot portable
+- `doctor`: chequeo rápido de salud de la base
+- `restore`: restaura estado desde snapshot
 
-`nt-cli` ahora cubre el ciclo completo de operación local:
+## OpenCode Integration (MCP)
 
-- **`session start|summary|end <id> [text]`**: registra el ciclo de vida de una sesión en la tabla `sessions` (schema v3). `start` falla si el id ya existe; `summary` y `end` requieren id existente. La tabla queda como log puro: no muta `memory_items`.
-- **`import [--dry-run] <file.json>`**: importa observaciones desde un JSON al store local. Idempotente: deduplica por `(topic_key, sha256(content))` mediante el índice único `memory_items_dedupe`. `--dry-run` muestra cuántas filas se insertarían sin tocar la base. Defaults: `type=manual`, `scope=project`. **No usa ni depende de ningún backend externo**.
-- **`backup <path>`**: snapshot atómico vía `VACUUM INTO` — un único archivo `.db` portable, schema-aware, restaurable en otra máquina sin pérdida.
-- **`restore <path>`**: reemplaza la base activa por el snapshot. Hace una copia lateral `.restore-bak` antes de sobrescribir; si falla a mitad, restaura el original. Requiere reabrir el proceso (`Init` es forward-only e idempotente).
-- **`doctor`**: diagnóstico read-only. Imprime una línea con `schema_version`, salud de FTS5, `integrity_check` y row counts de `memory_items` y `sessions`. Mensajes de integridad no-ok se listan abajo del summary.
-
-## Herramientas MCP
-
-| Tool | Descripción | Argumentos |
-|------|-------------|------------|
-| `local_save` | Guarda una nota local | `{ content: string, title?, type?, topic_key?, scope? }` |
-| `local_recall` | Busca notas por texto | `{ query: string, limit?: integer }` |
-| `local_list` | Lista notas recientes (scoped por proyecto activo por default) | `{ limit?: integer, all_projects?: boolean }` |
-| `local_get` | Obtiene una nota por id | `{ id: integer }` |
-| `local_update` | Actualiza el contenido de una nota por id | `{ id: integer, content: string }` |
-| `local_delete` | Elimina una nota por id | `{ id: integer }` |
-| `local_session_start` | Inicia una sesión local | `{ session_id: string }` |
-| `local_session_summary` | Adjunta resumen a la sesión | `{ session_id: string, summary: string }` |
-| `local_session_end` | Cierra la sesión local | `{ session_id: string }` |
-| `local_import` | Importa observaciones desde JSON (idempotente) | `{ path: string, dry_run?: boolean }` |
-| `local_backup` | Snapshot portable del store local | `{ path: string }` |
-| `local_restore` | Restaura el store local desde un snapshot | `{ path: string }` |
-| `local_doctor` | Diagnóstico read-only del store local | `{}` |
-
-`local_get` y `local_update` reportan errores con `isError: true` cuando el id no existe, el id es inválido o el contenido es vacío/whitespace.
-
-Todos los tools `local_*` son **local-only**: operan exclusivamente sobre `~/.nt-cli/data.db` y no comunican con ningún backend externo.
-
-### Nota de migración (v0.5.4 PR2b)
-
-- `local_list` ahora devuelve solo notas del proyecto activo por default.
-- Para recuperar el comportamiento global anterior, pasá `all_projects=true`.
-
-## Integración con OpenCode (MCP)
-
-Agregar en `~/.config/opencode/opencode.json`:
+Agregá esto en `~/.config/opencode/opencode.json`:
 
 ```json
 {
@@ -153,61 +115,53 @@ Agregar en `~/.config/opencode/opencode.json`:
 }
 ```
 
-Antes, compilar binario:
+Compilá el binario antes:
 
 ```bash
 cd /opt/nt-cli
 go build -o nt-cli ./cmd/nt-cli
 ```
 
-### Iteración sin rebuild/restart constantes
+Para detalle de tools MCP y contratos, ver: **[`docs/mcp.md`](docs/mcp.md)**.
 
-El wrapper `scripts/opencode-mcp-dev.sh` ejecuta `go run ./cmd/nt-cli mcp`.
-Así, OpenCode siempre levanta el código más reciente al iniciar el MCP.
+## Commands Reference
 
-> Nota: igual necesitás reabrir/reconectar OpenCode para que relance el proceso MCP, pero no hace falta compilar manualmente cada cambio.
+| Comando | Qué hace |
+|---|---|
+| `nt-cli init` | Inicializa configuración base |
+| `nt-cli save "<texto>"` | Guarda una nota |
+| `nt-cli recall "<query>"` | Busca notas por texto |
+| `nt-cli list [limit]` | Lista notas recientes |
+| `nt-cli get <id>` | Muestra una nota por ID |
+| `nt-cli update <id> "<texto>"` | Actualiza una nota |
+| `nt-cli delete <id>` | Elimina una nota |
+| `nt-cli context --summary` | Resumen de contexto actual |
+| `nt-cli session start <id>` | Inicia sesión |
+| `nt-cli session summary <id> "<txt>"` | Guarda resumen de sesión |
+| `nt-cli session end <id>` | Cierra sesión |
+| `nt-cli import <archivo.json>` | Importa observaciones |
+| `nt-cli backup <ruta.db>` | Crea snapshot local |
+| `nt-cli restore <ruta.db>` | Restaura snapshot |
+| `nt-cli doctor` | Diagnóstico de base local |
+| `nt-cli mcp` | Ejecuta servidor MCP |
 
-## Runtime behavior y perfil de usuario
+## Configuration
 
-El comportamiento global recomendado para agentes en este repo está documentado en:
+- **`AGENTS.md`**: define defaults de comportamiento de agentes para este repo.
+- **`~/.nt-cli/profile.json`**: preferencias de usuario (idioma, tono, verbosidad, autoswitch de contexto, etc.).
+- Ejemplo de perfil: `docs/profile.example.json`.
 
-- `AGENTS.md` (defaults del proyecto)
+## Issues y soporte
 
-Personalización por usuario (opcional):
+¿Encontraste un bug o querés pedir una mejora?  
+Abrí un issue acá: **https://github.com/ntimpano/nt-cli/issues**
 
-- `~/.nt-cli/profile.json`
+## Contributing
 
-Ejemplo base:
+Contribuciones bienvenidas: fixes, mejoras de DX, docs y tests.  
+Si querés sumar algo, abrí un issue primero para alinear enfoque y evitar laburo duplicado: https://github.com/ntimpano/nt-cli/issues
 
-- `docs/profile.example.json`
+## Licencia
 
-Defaults actuales:
-
-- tono argentino (es-AR, voseo)
-- respuestas cortas
-- autoswitch de contexto activo
-- preguntar antes de mutar cuando hay duda
-
-## Rollout
-
-`nt-cli` se despliega en tres fases (shadow → partial → full) con
-compuertas de readiness medibles y un rollback reversible vía host
-profile.
-
-**Fase actual**: shadow
-
-- Runbook completo y checklist de salida: [`docs/rollout-runbook.md`](docs/rollout-runbook.md)
-- Compuertas de readiness G1–G6: ver [tabla en el runbook](docs/rollout-runbook.md#readiness-gates-g1g6)
-- Toggle de host (`NTCLI_PROFILE=shadow|pilot`): ver [Host profile toggle](docs/rollout-runbook.md#host-profile-toggle-ntcli_profile)
-
-### Triggers de rollback
-
-Si pasa cualquiera de estos, ejecutar el [rollback runbook](docs/rollout-runbook.md#rollback-runbook):
-
-- `internal/mcp/parity_test.go` falla luego de haber estado verde.
-- Reporte de pérdida de datos atribuible a `nt-cli`.
-- Error de registro de tools MCP al arrancar el host.
-- Tasa de error en la ventana de soak por encima del umbral documentado.
-
-El rollback está **acotado a `nt-cli`**: no toca datos fuera de `~/.nt-cli/`
-y la vuelta al perfil shadow es una sola edición de configuración.
+Actualmente este repositorio **no declara una licencia explícita** en el root.  
+Antes de reutilizar código fuera del proyecto, abrí un issue para confirmar condiciones de uso.
