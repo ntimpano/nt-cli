@@ -21,8 +21,6 @@ jobs:
             goarch: amd64
           - goos: darwin
             goarch: arm64
-          - goos: windows
-            goarch: amd64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -49,7 +47,7 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Regenerate checksums
-        run: cd dist && sha256sum nt-cli_*.tar.gz nt-cli_*.zip 2>/dev/null | sort > sha256sums.txt
+        run: cd dist && sha256sum nt-cli_*.tar.gz 2>/dev/null | sort > sha256sums.txt
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*

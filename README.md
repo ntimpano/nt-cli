@@ -34,13 +34,12 @@ Está pensado para que vos (y tus agentes) no pierdan decisiones, aprendizajes n
 curl -fsSL https://raw.githubusercontent.com/ntimpano/nt-cli/main/scripts/install.sh | bash
 ```
 
-### Windows (amd64)
-
-```powershell
-powershell -ExecutionPolicy Bypass -Command "& { iwr https://raw.githubusercontent.com/ntimpano/nt-cli/main/scripts/install.ps1 -UseBasicParsing | iex }"
-```
-
 > Requiere OpenCode: https://opencode.ai
+
+## Estado de rollout
+
+- **Fase actual / Current phase**: **shadow**
+- **Rollback triggers**: ver runbook en [`docs/rollout-runbook.md#rollback-runbook`](docs/rollout-runbook.md#rollback-runbook)
 
 ## Quick Start (30 segundos)
 

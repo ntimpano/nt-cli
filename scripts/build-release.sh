@@ -6,13 +6,13 @@ DIST_DIR="${ROOT_DIR}/dist"
 VERSION="${GITHUB_REF_NAME:-dev}"
 
 mkdir -p "${DIST_DIR}"
-rm -f "${DIST_DIR}"/nt-cli_*.tar.gz "${DIST_DIR}"/nt-cli_*.zip "${DIST_DIR}/sha256sums.txt"
+rm -f "${DIST_DIR}"/nt-cli_*.tar.gz "${DIST_DIR}/sha256sums.txt"
 
 # Partial artifact cleanup: if any target fails, remove dist/ output so no
 # incomplete release set is left behind.
 _cleanup_on_fail() {
   echo "build failed — removing partial artifacts from ${DIST_DIR}" >&2
-  rm -f "${DIST_DIR}"/nt-cli_*.tar.gz "${DIST_DIR}"/nt-cli_*.zip "${DIST_DIR}/sha256sums.txt"
+  rm -f "${DIST_DIR}"/nt-cli_*.tar.gz "${DIST_DIR}/sha256sums.txt"
 }
 trap '_cleanup_on_fail' ERR
 
@@ -21,10 +21,6 @@ build_target() {
   local goarch="$2"
   local stage_dir
   local binary_name="nt-cli"
-
-  if [[ "${goos}" == "windows" ]]; then
-    binary_name="nt-cli.exe"
-  fi
 
   stage_dir="$(mktemp -d)"
 
@@ -41,14 +37,7 @@ build_target() {
   cp "${ROOT_DIR}/README.md" "${stage_dir}/" 2>/dev/null || true
   cp -R "${ROOT_DIR}/prompts" "${stage_dir}/" 2>/dev/null || true
 
-  if [[ "${goos}" == "windows" ]]; then
-    (
-      cd "${stage_dir}"
-      zip -r "${DIST_DIR}/nt-cli_${goos}_${goarch}.zip" . >/dev/null
-    )
-  else
-    tar -czf "${DIST_DIR}/nt-cli_${goos}_${goarch}.tar.gz" -C "${stage_dir}" .
-  fi
+  tar -czf "${DIST_DIR}/nt-cli_${goos}_${goarch}.tar.gz" -C "${stage_dir}" .
 
   rm -rf "${stage_dir}"
 }
@@ -62,11 +51,10 @@ else
   build_target linux arm64
   build_target darwin amd64
   build_target darwin arm64
-  build_target windows amd64
 fi
 
 _artifacts=()
-for f in "${DIST_DIR}"/nt-cli_*.tar.gz "${DIST_DIR}"/nt-cli_*.zip; do
+for f in "${DIST_DIR}"/nt-cli_*.tar.gz; do
   [[ -f "$f" ]] && _artifacts+=("$(basename "$f")")
 done
 
