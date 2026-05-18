@@ -26,117 +26,46 @@ See `_shared/skill-resolver.md` for the full resolution protocol.
 ## Compact Rules
 
 ### comment-writer
-- Start with the actionable point, do not preamble.
-- Keep comments short (1-3 paragraphs or tight bullets).
-- Explain the technical why when requesting changes.
-- Focus on highest-value feedback, avoid preference pile-ons.
-- Match thread language (Spanish: Rioplatense voseo).
-- Do not use em dashes.
+- Lead with action, keep short, explain technical why, match thread language.
 
 ### work-unit-commits
-- Each commit must represent one deliverable work unit.
-- Never split by file type when behavior is coupled.
-- Keep tests/docs in the same commit as the change they verify.
-- Ensure each commit is reviewable, rollback-safe, and story-driven.
-- If projected diff is >400 lines, pre-slice into chained PR units.
-- Use Conventional Commit messages focused on outcome.
+- One deliverable per commit. Tests/docs in same commit as change they verify. >400 lines → chain.
 
 ### cognitive-doc-design
-- Lead with outcome/decision first, then context.
-- Use progressive disclosure: quick path first, details later.
-- Chunk content into scan-friendly sections and short lists.
-- Prefer recognition aids: tables, checklists, templates.
-- Make review path explicit, including scope boundaries.
-- Keep each section tied to one decision/work unit.
+- Lead with outcome. Chunk for scanning. Use tables/checklists. Make review path explicit.
 
 ### chained-pr
-- Split PRs exceeding 400 changed lines unless `size:exception` is approved.
-- Keep each slice autonomous: green CI, clear scope, rollback, verification.
-- State start/end boundaries, dependencies, and follow-ups in every PR.
-- Use one strategy per chain (stacked-to-main or feature-branch chain).
-- Include chain diagram and status table, mark current PR.
-- For >2 child PRs, create a draft tracker PR map.
+- Split >400 lines unless size:exception. Each slice autonomous (CI, scope, rollback, verify).
 
 ### issue-creation
-- Use templates only, blank issues are disallowed.
-- New issues start with `status:needs-review`.
-- No PR until maintainer adds `status:approved`.
-- Route questions to Discussions, not Issues.
-- Require complete reproduction/problem context fields.
-- Search for duplicates before creating a new issue.
+- Use templates. Start status:needs-review. No PR without status:approved.
 
 ### branch-pr
-- Every PR must link an approved issue (`Closes/Fixes/Resolves #N`).
-- Add exactly one `type:*` label per PR.
-- Use branch name pattern `type/description` with lowercase safe chars.
-- Follow Conventional Commit format.
-- Ensure required automated checks pass before merge.
-- Do not use AI attribution trailers in commits.
+- Link approved issue. One type:label. Branch = type/description. Conventional Commits.
 
 ### skill-creator
-- Create skills only for reusable, non-trivial patterns.
-- Keep frontmatter complete (`name`, `description+Trigger`, `license`, `metadata`).
-- Put actionable rules in Critical Patterns, keep examples minimal.
-- Use local references/assets, avoid web-only dependency in skill docs.
-- Follow naming conventions (`{tech}`, `{project-component}`, `{action-target}`).
-- Register new skills in AGENTS index.
+- Only for reusable patterns. Complete frontmatter. Register in index when done.
 
 ### go-testing
-- Prefer table-driven tests for behavior matrices.
-- Test Bubbletea model transitions directly via `Update`.
-- Use teatest for interactive TUI flows.
-- Use golden files for stable view output snapshots.
-- Cover success/error paths and edge cases explicitly.
-- Use `t.TempDir()` and mocks for side-effect isolation.
+- Table-driven tests. teatest for TUI. Golden files for views. Cover success/error/edge.
 
 ### judgment-day
-- Launch two blind judges in parallel, never sequential.
-- Synthesize confirmed vs suspect findings before fixing.
-- Classify warnings: real vs theoretical; only real warnings block.
-- Fix only confirmed issues, then re-judge in parallel.
-- After two fix rounds with remaining blockers, ask user before continuing.
-- Never approve without required clean convergence criteria.
+- Two blind judges in parallel. Fix confirmed only. Re-judge. Escalate after 2 rounds.
 
 ### security-review
-- Report findings grouped by severity (Critical, High, Medium, Low/Informational).
-- Always explain **why** something is a risk, not just what.
-- Propose concrete fixes, not generic recommendations.
-- Flag areas checked with no findings for confidence.
-- Do NOT auto-fix critical issues without user confirmation.
-- If codebase uses a pattern consistently, note systemic risk, not individual instances.
+- Group by severity. Explain WHY. Propose concrete fix. Flag clean areas for confidence.
 
 ### bug-fix
-- Diagnose before fixing: Reproduce → Isolate → Root cause → Fix → Verify.
-- Distinguish symptom (where it crashes) from cause (why it happens).
-- Fix root cause, not the symptom; prefer minimal change.
-- Always add or update test that reproduces the exact bug.
-- Document fix with root cause, file:line, and follow-ups in memory.
-- NEVER fix without reproducing first; NEVER suppress errors.
+- Diagnose → Root cause → Fix → Verify. Distinguish symptom from cause. Document.
 
 ### doc-writer
-- Document the WHY, not the WHAT; code shows what, docs explain why.
-- Match existing doc style of the project.
-- Keep examples **runnable** — test them mentally before writing.
-- For inline docs: use JSDoc (TS/JS), Google-style (Python), godoc (Go), rustdoc (Rust).
-- For READMEs: structure with Quick Start, Usage, Configuration, API, Architecture, Development, Contributing.
-- Flag if a function/module is too complex to document simply as a design smell.
+- Document WHY. Match project style. Runnable examples. Flag complexity smells.
 
 ### python-testing-tdd
-- TDD real: RED → GREEN → REFACTOR; sin RED real no fue TDD.
-- Tests de runtime (comportamiento observable), no solo inspección de source/AST.
-- Mockear boto3 en bordes del sistema; validar llamadas esperadas y payloads.
-- CDK: synth + asserts sobre definición de recursos (state machines, timeouts, retries, permisos).
-- Evidencia ejecutada obligatoria: comando exacto (`pytest ...`) + resultado (pass/fail).
+- RED→GREEN→REFACTOR. Runtime tests (not AST). Evidence: exact command + result.
 
 ### azure-pr-workflow
-- Branch naming: `feat/<work-item-id>-<desc>` o `fix/<work-item-id>-<desc>`, minúsculas y guiones.
-- Completar `pull_request_template.md` exactamente, sin secciones vacías.
-- Reviewer requerido antes de avanzar; no auto-approve ni merge sin revisión humana.
-- Link obligatorio a work items (User Story + tasks técnicas).
-- Resolver conflictos localmente (rebase/merge), validar con tests, luego push.
-- Verificación post-merge: pipeline status + cierre de work items + branch alineado.
-- Preflight gates bloqueantes: template completo, idioma es-AR, branch naming válido.
-- Formato de error bloqueante: `PR_BLOCKED: <gate> | fix: <action>`
+- Branch: feat|fix/<work-item-id>-<desc>. Template completo. Preflight gates: PR_BLOCKED.
 
 ## Project Conventions
 
