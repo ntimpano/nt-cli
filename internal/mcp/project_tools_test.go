@@ -371,7 +371,7 @@ func TestMCP_ResourcesRead_UnknownURI(t *testing.T) {
 	type resourcesReadParams struct {
 		URI string `json:"uri"`
 	}
-	params, _ := json.Marshal(resourcesReadParams{URI: "nt-cli://unknown/resource"})
+	params, _ := json.Marshal(resourcesReadParams{URI: "flint://unknown/resource"})
 	reqJSON, _ := json.Marshal(request{
 		JSONRPC: "2.0",
 		ID:      json.RawMessage(`2`),

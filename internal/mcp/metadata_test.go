@@ -6,6 +6,39 @@ import (
 	"testing"
 )
 
+func TestToolsList_UsesLocalPrefixAndNoNTCLIPrefix(t *testing.T) {
+	tools := advertisedTools(t)
+	gotNames := toolNames(tools)
+
+	requiredLocal := []string{
+		"local_save",
+		"local_recall",
+		"local_context",
+		"local_list",
+		"local_get",
+		"local_update",
+		"local_delete",
+		"local_session_start",
+		"local_session_end",
+		"local_session_summary",
+		"local_record_observation",
+		"local_import",
+		"local_backup",
+		"local_restore",
+		"local_doctor",
+	}
+	for _, name := range requiredLocal {
+		if !contains(gotNames, name) {
+			t.Fatalf("tools/list must include %q, got %v", name, gotNames)
+		}
+	}
+	for _, name := range gotNames {
+		if strings.HasPrefix(name, "ntcli_") {
+			t.Fatalf("tools/list must not expose ntcli_ prefix, found %q in %v", name, gotNames)
+		}
+	}
+}
+
 // TestToolDescriptions_MarkLocalOnly proves the spec scenario
 // "nt-cli tools MUST be marked as local-only in their metadata". Each
 // advertised local_* tool description MUST identify the tool as
@@ -21,7 +54,7 @@ func TestToolDescriptions_MarkLocalOnly(t *testing.T) {
 		"local_get",
 		"local_update",
 		"local_delete",
-		"ntcli_local_record_observation",
+		"local_record_observation",
 	}
 
 	byName := map[string]map[string]interface{}{}
@@ -199,4 +232,13 @@ func sameStringSet(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func contains(items []string, target string) bool {
+	for _, item := range items {
+		if item == target {
+			return true
+		}
+	}
+	return false
 }
