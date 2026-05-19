@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
@@ -18,15 +19,6 @@ func main() {
 	}
 
 	cmd := os.Args[1]
-
-	if cmd == "mcp" {
-		srv := mcp.NewServer(os.Stdin, os.Stdout)
-		if err := srv.Run(); err != nil {
-			fmt.Fprintf(os.Stderr, "mcp error: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
 
 	if cmd == "init" {
 		os.Exit(app.RunInitOrProfile(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
@@ -55,6 +47,31 @@ func main() {
 	// read/write paths are automatically scoped (tasks 2.4–2.6).
 	if activeProj, err := repo.GetActive(); err == nil {
 		svc.SetActiveProject(activeProj.ID)
+	}
+
+	if cmd == "mcp" {
+		fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
+		fs.SetOutput(os.Stderr)
+		transport := fs.String("transport", "stdio", "mcp transport: stdio|sse")
+		port := fs.String("port", "7878", "sse listen port")
+		bind := fs.String("bind", "127.0.0.1", "sse bind address")
+		if err := fs.Parse(os.Args[2:]); err != nil {
+			os.Exit(2)
+		}
+
+		srv := mcp.NewServer(os.Stdin, os.Stdout, svc)
+		if *transport == "sse" {
+			if err := srv.RunSSE(*port, *bind); err != nil {
+				fmt.Fprintf(os.Stderr, "mcp sse error: %v\n", err)
+				os.Exit(1)
+			}
+			return
+		}
+		if err := srv.Run(); err != nil {
+			fmt.Fprintf(os.Stderr, "mcp error: %v\n", err)
+			os.Exit(1)
+		}
+		return
 	}
 
 	os.Exit(app.RunCLIWithStdin(svc, os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
