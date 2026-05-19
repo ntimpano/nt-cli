@@ -5,8 +5,8 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 
 on_init_error() {
   local line=${1:-unknown}
-  echo "ERROR: nt-cli init --non-interactive failed near line ${line}." >&2
-  echo "ERROR: Fix the init error above, then run '$HOME/.local/bin/nt-cli init --non-interactive'." >&2
+  echo "ERROR: flint init --non-interactive failed near line ${line}." >&2
+  echo "ERROR: Fix the init error above, then run '$HOME/.local/bin/flint init --non-interactive'." >&2
 }
 
 # 1. OS/arch detection
@@ -30,10 +30,10 @@ command -v jq >/dev/null || die "jq required: brew install jq | apt install jq |
 command -v curl >/dev/null || die "curl required"
 
 # 3. Version resolution
-REPO="ntimpano/nt-cli"
+REPO="ntimpano/flint"
 VERSION="${NT_CLI_VERSION:-$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | jq -r .tag_name)}"
 BASE="https://github.com/${REPO}/releases/download/${VERSION}"
-TARBALL="nt-cli_${OS}_${ARCH}.tar.gz"
+TARBALL="flint_${OS}_${ARCH}.tar.gz"
 
 # 4. Download
 TMPDIR=$(mktemp -d); trap 'rm -rf "$TMPDIR"' EXIT
@@ -56,7 +56,7 @@ tar -xzf "$TMPDIR/$TARBALL" -C "$TMPDIR"
 
 # 7. Binary install to ~/.local/bin (no sudo)
 mkdir -p "$HOME/.local/bin"
-install -m 0755 "$TMPDIR/nt-cli" "$HOME/.local/bin/nt-cli"
+install -m 0755 "$TMPDIR/flint" "$HOME/.local/bin/flint"
 
 # 8. opencode.json merge (additive, nt-* only, atomic)
 BUNDLE="$TMPDIR/.nt-cli-agents.json"
@@ -94,9 +94,9 @@ if [[ -f "$BUNDLED_AGENTS" ]]; then
   fi
 fi
 
-# 10. Run nt-cli init (idempotent)
+# 10. Run flint init (idempotent)
 trap 'on_init_error $LINENO' ERR
-"$HOME/.local/bin/nt-cli" init --non-interactive
+"$HOME/.local/bin/flint" init --non-interactive
 trap - ERR
 
 # 11. PATH hint
@@ -105,4 +105,4 @@ case ":$PATH:" in
   *) echo "Add to PATH: export PATH=\"\$HOME/.local/bin:\$PATH\"" ;;
 esac
 
-echo "nt-cli ${VERSION} installed successfully."
+echo "flint ${VERSION} installed successfully."

@@ -102,7 +102,7 @@ func must(t *testing.T, err error, mode ...os.FileMode) {
 }
 
 // buildFakeRelease creates a fake tarball + sha256sums.txt in dir, matching the
-// linux/amd64 asset name. The tarball contains a minimal fake nt-cli binary and
+// linux/amd64 asset name. The tarball contains a minimal fake flint binary and
 // optionally the provided extraFiles map (filename -> content).
 func buildFakeRelease(t *testing.T, dir string, extraFiles map[string][]byte) {
 	t.Helper()
@@ -110,13 +110,13 @@ func buildFakeRelease(t *testing.T, dir string, extraFiles map[string][]byte) {
 
 	// Create a staging dir for the tarball contents.
 	stage := t.TempDir()
-	// Fake nt-cli binary (just a shell echo stub).
-	must(t, os.WriteFile(filepath.Join(stage, "nt-cli"), []byte("#!/usr/bin/env bash\necho \"nt-cli stub $*\"\n"), 0755))
+	// Fake flint binary (just a shell echo stub).
+	must(t, os.WriteFile(filepath.Join(stage, "flint"), []byte("#!/usr/bin/env bash\necho \"flint stub $*\"\n"), 0755))
 	for name, content := range extraFiles {
 		must(t, os.WriteFile(filepath.Join(stage, name), content, 0644))
 	}
 
-	tarball := filepath.Join(dir, "nt-cli_linux_amd64.tar.gz")
+	tarball := filepath.Join(dir, "flint_linux_amd64.tar.gz")
 	cmd := exec.Command("tar", "-czf", tarball, "-C", stage, ".")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("tar failed: %v\n%s", err, out)
@@ -125,9 +125,9 @@ func buildFakeRelease(t *testing.T, dir string, extraFiles map[string][]byte) {
 	// Generate real sha256sum.
 	var checkCmd *exec.Cmd
 	if _, err := exec.LookPath("sha256sum"); err == nil {
-		checkCmd = exec.Command("bash", "-c", "sha256sum nt-cli_linux_amd64.tar.gz > sha256sums.txt")
+		checkCmd = exec.Command("bash", "-c", "sha256sum flint_linux_amd64.tar.gz > sha256sums.txt")
 	} else {
-		checkCmd = exec.Command("bash", "-c", "shasum -a 256 nt-cli_linux_amd64.tar.gz > sha256sums.txt")
+		checkCmd = exec.Command("bash", "-c", "shasum -a 256 flint_linux_amd64.tar.gz > sha256sums.txt")
 	}
 	checkCmd.Dir = dir
 	if out, err := checkCmd.CombinedOutput(); err != nil {
@@ -260,12 +260,12 @@ func TestInstall_ChecksumMismatch(t *testing.T) {
 	requireJq(t)
 
 	fileDir := t.TempDir()
-	tarball := filepath.Join(fileDir, "nt-cli_linux_amd64.tar.gz")
+	tarball := filepath.Join(fileDir, "flint_linux_amd64.tar.gz")
 	must(t, os.WriteFile(tarball, []byte("not a real tarball"), 0644))
 
 	badHash := "0000000000000000000000000000000000000000000000000000000000000000"
 	must(t, os.WriteFile(filepath.Join(fileDir, "sha256sums.txt"),
-		[]byte(badHash+"  nt-cli_linux_amd64.tar.gz\n"), 0644))
+		[]byte(badHash+"  flint_linux_amd64.tar.gz\n"), 0644))
 
 	env, _ := fakeCurlEnv(t, fileDir)
 	out, err := runInstallWithEnv(t, env)
@@ -304,7 +304,7 @@ func TestInstall_Sha256Portability(t *testing.T) {
 }
 
 // TestInstall_BinaryPlacement verifies that a successful install places the
-// nt-cli binary in ~/.local/bin/nt-cli with executable permissions.
+// flint binary in ~/.local/bin/flint with executable permissions.
 func TestInstall_BinaryPlacement(t *testing.T) {
 	requireBash(t)
 	requireJq(t)
@@ -320,7 +320,7 @@ func TestInstall_BinaryPlacement(t *testing.T) {
 		t.Fatalf("install failed: %v\n%s", err, out)
 	}
 
-	binPath := filepath.Join(homeDir, ".local", "bin", "nt-cli")
+	binPath := filepath.Join(homeDir, ".local", "bin", "flint")
 	info, statErr := os.Stat(binPath)
 	if statErr != nil {
 		t.Fatalf("binary not found at %s: %v", binPath, statErr)
@@ -610,7 +610,7 @@ func TestInstall_FailsFastWhenInitFails(t *testing.T) {
 
 	fileDir := t.TempDir()
 	buildFakeRelease(t, fileDir, map[string][]byte{
-		"nt-cli": []byte("#!/usr/bin/env bash\nif [[ \"$1\" == \"init\" ]]; then\n  echo \"init failed\" >&2\n  exit 42\nfi\nexit 0\n"),
+		"flint": []byte("#!/usr/bin/env bash\nif [[ \"$1\" == \"init\" ]]; then\n  echo \"init failed\" >&2\n  exit 42\nfi\nexit 0\n"),
 	})
 
 	homeDir := t.TempDir()
@@ -618,9 +618,9 @@ func TestInstall_FailsFastWhenInitFails(t *testing.T) {
 	env, _ := fakeCurlEnv(t, fileDir)
 	out, err := runInstall(t, homeDir, env)
 	if err == nil {
-		t.Fatalf("expected install to fail when nt-cli init fails, got success:\n%s", out)
+		t.Fatalf("expected install to fail when flint init fails, got success:\n%s", out)
 	}
-	if !strings.Contains(out, "nt-cli init --non-interactive") {
+	if !strings.Contains(out, "flint init --non-interactive") {
 		t.Fatalf("expected actionable init failure message, got:\n%s", out)
 	}
 }
@@ -631,7 +631,7 @@ func TestInstall_SmokeSuccessStillPasses(t *testing.T) {
 
 	fileDir := t.TempDir()
 	buildFakeRelease(t, fileDir, map[string][]byte{
-		"nt-cli": []byte("#!/usr/bin/env bash\nif [[ \"$1\" == \"init\" ]]; then\n  exit 0\nfi\nexit 0\n"),
+		"flint": []byte("#!/usr/bin/env bash\nif [[ \"$1\" == \"init\" ]]; then\n  exit 0\nfi\nexit 0\n"),
 	})
 
 	homeDir := t.TempDir()

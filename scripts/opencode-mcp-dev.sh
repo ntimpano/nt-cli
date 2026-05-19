@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# opencode-mcp-dev.sh — launch the nt-cli MCP server for OpenCode (dev mode).
+# opencode-mcp-dev.sh — launch the flint MCP server for OpenCode (dev mode).
 #
 # Host profile toggle (nt-cli rollout):
 #   NTCLI_PROFILE=shadow  (default) Safe shadow profile used during the
@@ -55,4 +55,4 @@ if [[ "${NTCLI_PROFILE_DRYRUN:-}" == "1" ]]; then
 fi
 
 cd /opt/nt-cli
-exec go run ./cmd/nt-cli mcp
+exec go run ./cmd/flint mcp

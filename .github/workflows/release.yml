@@ -47,7 +47,7 @@ jobs:
           path: dist
           merge-multiple: true
       - name: Regenerate checksums
-        run: cd dist && sha256sum nt-cli_*.tar.gz 2>/dev/null | sort > sha256sums.txt
+        run: cd dist && sha256sum flint_*.tar.gz 2>/dev/null | sort > sha256sums.txt
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
