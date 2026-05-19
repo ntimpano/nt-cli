@@ -60,7 +60,7 @@ func DefaultRuntimeConfig() model.RuntimeConfig {
 	}
 }
 
-// RuntimeConfigPath returns ~/.nt-cli/config.json.
+// RuntimeConfigPath returns ~/.flint/config.json.
 func RuntimeConfigPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -69,7 +69,7 @@ func RuntimeConfigPath() (string, error) {
 	if strings.TrimSpace(home) == "" {
 		return "", errors.New("home directory is empty")
 	}
-	return filepath.Join(home, ".nt-cli", "config.json"), nil
+	return filepath.Join(home, ".flint", "config.json"), nil
 }
 
 func runtimeConfigPath() (string, error) { return RuntimeConfigPath() }
@@ -81,7 +81,7 @@ type runtimeConfigDisk struct {
 	PrimaryDomain string          `json:"primary_domain"`
 }
 
-// LoadRuntimeConfig reads ~/.nt-cli/config.json; returns defaults if missing
+// LoadRuntimeConfig reads ~/.flint/config.json; returns defaults if missing
 func LoadRuntimeConfig() (model.RuntimeConfig, error) {
 	path, err := RuntimeConfigPath()
 	if err != nil {
@@ -161,7 +161,7 @@ func LoadRuntimeConfig() (model.RuntimeConfig, error) {
 	return cfg, nil
 }
 
-// Save writes config to ~/.nt-cli/config.json
+// Save writes config to ~/.flint/config.json
 func SaveRuntimeConfig(r model.RuntimeConfig) error {
 	if r.Version == "" {
 		r.Version = "v1"

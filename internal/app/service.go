@@ -716,9 +716,9 @@ func DefaultDBPath() (string, error) {
 			home = "/tmp"
 		}
 	}
-	dir := filepath.Join(home, ".nt-cli")
+	dir := filepath.Join(home, ".flint")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
-	return filepath.Join(dir, "data.db"), nil
+	return filepath.Join(dir, "flint.db"), nil
 }

@@ -31,7 +31,7 @@ type ModelTiers struct {
 	Planning  string `json:"planning"`  // planning/coordination work
 }
 
-// RuntimeConfig is stored at ~/.nt-cli/config.json
+// RuntimeConfig is stored at ~/.flint/config.json
 type RuntimeConfig struct {
 	Version       string     `json:"version,omitempty"`
 	Runtime       RuntimeType `json:"-"` // backward-compatible field used by current app code
@@ -75,7 +75,7 @@ func (c RuntimeConfig) Validate() error {
 	}
 }
 
-// Save persists runtime config atomically at ~/.nt-cli/config.json.
+// Save persists runtime config atomically at ~/.flint/config.json.
 func (c RuntimeConfig) Save() error {
 	if c.Version == "" {
 		c.Version = "v1"
@@ -98,7 +98,7 @@ func (c RuntimeConfig) Save() error {
 		return fmt.Errorf("home directory is empty")
 	}
 
-	path := filepath.Join(home, ".nt-cli", "config.json")
+	path := filepath.Join(home, ".flint", "config.json")
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err

@@ -69,7 +69,7 @@ func TestRuntimeConfigSaveAtomicBehavior(t *testing.T) {
 		t.Fatalf("initial save failed: %v", err)
 	}
 
-	path := filepath.Join(home, ".nt-cli", "config.json")
+	path := filepath.Join(home, ".flint", "config.json")
 	original := []byte("{\n  \"version\": \"v1\"\n}\n")
 	if err := os.WriteFile(path, original, 0o600); err != nil {
 		t.Fatalf("seed original config: %v", err)
@@ -98,7 +98,7 @@ func TestRuntimeConfigSaveAtomicBehavior(t *testing.T) {
 func TestLoadRuntimeConfigFallbackBehavior(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	configDir := filepath.Join(home, ".nt-cli")
+	configDir := filepath.Join(home, ".flint")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("mkdir config dir: %v", err)
 	}

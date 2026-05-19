@@ -227,7 +227,7 @@ func TestRunInitWritesWorkflowAndMergesOpencodeAgents(t *testing.T) {
 		t.Fatalf("runInit error: %v stderr=%q", err, stderr.String())
 	}
 
-	workflowDst := filepath.Join(home, ".nt-cli", "workflows.json")
+	workflowDst := filepath.Join(home, ".flint", "workflows.json")
 	wf, err := os.ReadFile(workflowDst)
 	if err != nil {
 		t.Fatalf("expected workflows.json copy, read failed: %v", err)

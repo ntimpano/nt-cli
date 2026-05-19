@@ -488,7 +488,7 @@ func copyWorkflowCatalog() error {
 	if err != nil {
 		return err
 	}
-	dst := filepath.Join(home, ".nt-cli", "workflows.json")
+	dst := filepath.Join(home, ".flint", "workflows.json")
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}

@@ -65,7 +65,7 @@ func TestRuntimeConfigSave_Writes0600AndAtomicOnFailure(t *testing.T) {
 		t.Fatalf("save failed: %v", err)
 	}
 
-	path := filepath.Join(home, ".nt-cli", "config.json")
+	path := filepath.Join(home, ".flint", "config.json")
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatalf("expected config file: %v", err)
@@ -100,7 +100,7 @@ func TestRuntimeConfigSave_Writes0600AndAtomicOnFailure(t *testing.T) {
 func TestLoadRuntimeConfig_FallbackAndCompatibility(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	configDir := filepath.Join(home, ".nt-cli")
+	configDir := filepath.Join(home, ".flint")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestRuntimeConfigPath_DetectAvailableRuntimes_AndHomeExpansion(t *testing.T
 	if err != nil {
 		t.Fatalf("RuntimeConfigPath error: %v", err)
 	}
-	want := filepath.Join(home, ".nt-cli", "config.json")
+	want := filepath.Join(home, ".flint", "config.json")
 	if path != want {
 		t.Fatalf("unexpected runtime config path: got %q want %q", path, want)
 	}
@@ -178,7 +178,7 @@ func TestRuntimeConfigPath_DetectAvailableRuntimes_AndHomeExpansion(t *testing.T
 		t.Fatal("expected detectAvailableRuntimes to include opencode")
 	}
 
-	configDir := filepath.Join(home, ".nt-cli")
+	configDir := filepath.Join(home, ".flint")
 	if err := os.MkdirAll(configDir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

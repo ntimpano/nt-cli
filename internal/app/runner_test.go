@@ -455,7 +455,7 @@ func TestRunCLI_InitDefaultRoutesToRunInit(t *testing.T) {
 		t.Fatalf("expected default init success, code=%d stderr=%q", code, stderr.String())
 	}
 
-	runtimePath := filepath.Join(home, ".nt-cli", "config.json")
+	runtimePath := filepath.Join(home, ".flint", "config.json")
 	if _, err := os.Stat(runtimePath); err != nil {
 		t.Fatalf("expected RunInit default path to write runtime config: %v", err)
 	}
@@ -474,7 +474,7 @@ func TestRunInitOrProfile_DefaultRoutesToRunInit(t *testing.T) {
 		t.Fatalf("expected default init success, code=%d stderr=%q", code, stderr.String())
 	}
 
-	runtimePath := filepath.Join(home, ".nt-cli", "config.json")
+	runtimePath := filepath.Join(home, ".flint", "config.json")
 	if _, err := os.Stat(runtimePath); err != nil {
 		t.Fatalf("expected RunInit path to write runtime config: %v", err)
 	}
@@ -494,7 +494,7 @@ func TestRunInitOrProfile_LegacyFlagRoutesToRunInitProfile(t *testing.T) {
 	if got.PrimaryDomain != "strategy" {
 		t.Fatalf("expected legacy fallback to set primary domain, got %+v", got)
 	}
-	runtimePath := filepath.Join(home, ".nt-cli", "config.json")
+	runtimePath := filepath.Join(home, ".flint", "config.json")
 	if _, err := os.Stat(runtimePath); err == nil {
 		t.Fatalf("expected legacy profile route to avoid runtime config write")
 	}
@@ -514,7 +514,7 @@ func TestRunInitOrProfile_ProfileFlagRoutesToRunInitProfile(t *testing.T) {
 	if got.PrimaryDomain != "research" {
 		t.Fatalf("expected profile fallback to set primary domain, got %+v", got)
 	}
-	runtimePath := filepath.Join(home, ".nt-cli", "config.json")
+	runtimePath := filepath.Join(home, ".flint", "config.json")
 	if _, err := os.Stat(runtimePath); err == nil {
 		t.Fatalf("expected profile route to avoid runtime config write")
 	}

@@ -39,7 +39,7 @@ func ProfilePath() (string, error) {
 	if strings.TrimSpace(home) == "" {
 		return "", errors.New("home directory is empty")
 	}
-	return filepath.Join(home, ".nt-cli", "profile.json"), nil
+	return filepath.Join(home, ".flint", "profile.json"), nil
 }
 
 func isOneOf(value string, valid []string) bool {
@@ -182,8 +182,8 @@ func profileDisplayPath(path string) string {
 	if err != nil || strings.TrimSpace(home) == "" {
 		return path
 	}
-	if path == filepath.Join(home, ".nt-cli", "profile.json") {
-		return "~/.nt-cli/profile.json"
+	if path == filepath.Join(home, ".flint", "profile.json") {
+		return "~/.flint/profile.json"
 	}
 	return path
 }

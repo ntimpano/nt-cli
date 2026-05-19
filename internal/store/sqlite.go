@@ -81,12 +81,12 @@ func applyPragmas(db *sql.DB) error {
 
 // SetBackupDir overrides the directory used for pre-migration snapshots.
 // Tests use this to keep snapshots inside a t.TempDir; the production
-// default is `~/.nt-cli/backups/`.
+// default is `~/.flint/backups/`.
 func (s *SQLiteStore) SetBackupDir(dir string) {
 	s.backupDir = dir
 }
 
-// defaultBackupDir resolves `~/.nt-cli/backups` lazily so tests that never
+// defaultBackupDir resolves `~/.flint/backups` lazily so tests that never
 // hit migration do not need a writable HOME.
 func defaultBackupDir() string {
 	home, err := os.UserHomeDir()
@@ -97,7 +97,7 @@ func defaultBackupDir() string {
 			home = os.TempDir()
 		}
 	}
-	return filepath.Join(home, ".nt-cli", "backups")
+	return filepath.Join(home, ".flint", "backups")
 }
 
 func (s *SQLiteStore) Init() error {
