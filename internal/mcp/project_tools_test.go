@@ -260,13 +260,13 @@ func TestMCP_ResourcesList_IncludesActiveProject(t *testing.T) {
 	found := false
 	for _, r := range resources {
 		rm, _ := r.(map[string]interface{})
-		if rm["uri"] == "nt-cli://project/active" {
+		if rm["uri"] == "flint://project/active" {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Fatalf("expected active_project resource with uri=nt-cli://project/active, got %+v", resources)
+		t.Fatalf("expected active_project resource with uri=flint://project/active, got %+v", resources)
 	}
 }
 
@@ -312,7 +312,7 @@ func TestMCP_LegacyTools_TransparentWithActiveProject(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestMCP_ResourcesRead_ActiveProject verifies that resources/read with
-// uri="nt-cli://project/active" returns the current project id, name, root_path.
+// uri="flint://project/active" returns the current project id, name, root_path.
 // RED: no resources/read handler exists yet → method not found.
 func TestMCP_ResourcesRead_ActiveProject(t *testing.T) {
 	f := newProjectMCPFixture(t)
@@ -320,7 +320,7 @@ func TestMCP_ResourcesRead_ActiveProject(t *testing.T) {
 	type resourcesReadParams struct {
 		URI string `json:"uri"`
 	}
-	params, _ := json.Marshal(resourcesReadParams{URI: "nt-cli://project/active"})
+	params, _ := json.Marshal(resourcesReadParams{URI: "flint://project/active"})
 	reqJSON, _ := json.Marshal(request{
 		JSONRPC: "2.0",
 		ID:      json.RawMessage(`1`),

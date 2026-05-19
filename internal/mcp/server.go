@@ -21,6 +21,7 @@ import (
 type Server struct {
 	in  io.Reader
 	out io.Writer
+	svc *app.Service
 }
 
 type transportMode int
@@ -30,8 +31,8 @@ const (
 	transportJSONStream
 )
 
-func NewServer(in io.Reader, out io.Writer) *Server {
-	return &Server{in: in, out: out}
+func NewServer(in io.Reader, out io.Writer, svc *app.Service) *Server {
+	return &Server{in: in, out: out, svc: svc}
 }
 
 type request struct {
@@ -230,23 +231,12 @@ func (s *Server) Run() error {
 	debugPath := resolveDebugLogPath()
 	debugLog(debugPath, "server start")
 
-	dbPath, err := app.DefaultDBPath()
+	svc, cleanup, err := s.ensureService()
 	if err != nil {
-		debugLog(debugPath, fmt.Sprintf("db path error: %v", err))
+		debugLog(debugPath, fmt.Sprintf("service init error: %v", err))
 		return err
 	}
-	repo, err := store.NewSQLiteStore(dbPath)
-	if err != nil {
-		debugLog(debugPath, fmt.Sprintf("sqlite open error: %v", err))
-		return err
-	}
-	defer repo.Close()
-
-	svc := app.NewService(repo)
-	if err := svc.Init(); err != nil {
-		debugLog(debugPath, fmt.Sprintf("svc init error: %v", err))
-		return err
-	}
+	defer cleanup()
 
 	r := bufio.NewReader(s.in)
 	w := bufio.NewWriter(s.out)
@@ -380,7 +370,7 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 		result := map[string]interface{}{
 			"protocolVersion": protocolVersion,
 			"serverInfo": map[string]interface{}{
-				"name":    "nt-cli",
+				"name":    "flint",
 				"version": "0.1.0",
 			},
 			"capabilities": map[string]interface{}{
@@ -619,7 +609,7 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 			}
 			return response{JSONRPC: "2.0", ID: req.ID, Result: toolText(fmt.Sprintf("session summary %s", strings.TrimSpace(args.SessionID)))}, true
 
-		case "ntcli_local_record_observation":
+		case "local_record_observation":
 			var args localRecordObservationArgs
 			if err := json.Unmarshal(params.Arguments, &args); err != nil {
 				return response{JSONRPC: "2.0", ID: req.ID, Error: &rpcError{Code: -32602, Message: "invalid arguments"}}, true
@@ -1091,7 +1081,7 @@ func toolsListResult() map[string]interface{} {
 				},
 			},
 			{
-				"name":        "ntcli_local_record_observation",
+				"name":        "local_record_observation",
 				"description": "Registra un marcador conductual en SQLite (local-only; no afecta backend externo). Formato: [BEHAVIORAL_OBSERVATION: category=<cat>, field=<field>, value=<value>, confidence=<0-100>]",
 				"inputSchema": map[string]interface{}{
 					"type": "object",
@@ -1384,7 +1374,7 @@ type resourcesReadParams struct {
 }
 
 // resourcesReadResult handles the resources/read call. The only supported URI
-// is "nt-cli://project/active" which returns the current active project as JSON.
+// is "flint://project/active" which returns the current active project as JSON.
 // Unknown URIs return an RPC error per the MCP protocol spec.
 func resourcesReadResult(rawParams json.RawMessage, svc *app.Service) (interface{}, *rpcError) {
 	args, err := decodeArgs[resourcesReadParams](rawParams)
@@ -1392,7 +1382,7 @@ func resourcesReadResult(rawParams json.RawMessage, svc *app.Service) (interface
 		return nil, &rpcError{Code: -32602, Message: "invalid arguments"}
 	}
 	p := args
-	if p.URI != "nt-cli://project/active" {
+	if p.URI != "flint://project/active" {
 		return map[string]interface{}{
 			"error": fmt.Sprintf("resource not found: %q", p.URI),
 		}, nil
@@ -1408,7 +1398,7 @@ func resourcesReadResult(rawParams json.RawMessage, svc *app.Service) (interface
 	return map[string]interface{}{
 		"contents": []map[string]interface{}{
 			{
-				"uri":      "nt-cli://project/active",
+				"uri":      "flint://project/active",
 				"mimeType": "application/json",
 				"text":     string(payload),
 			},
@@ -1474,11 +1464,32 @@ func resourcesListResult(svc *app.Service) map[string]interface{} {
 	return map[string]interface{}{
 		"resources": []map[string]interface{}{
 			{
-				"uri":         "nt-cli://project/active",
+				"uri":         "flint://project/active",
 				"name":        "Active Project",
 				"description": "The currently active nt-cli project context (id, name, root_path).",
 				"mimeType":    "application/json",
 			},
 		},
 	}
+}
+
+func (s *Server) ensureService() (*app.Service, func(), error) {
+	if s.svc != nil {
+		return s.svc, func() {}, nil
+	}
+	dbPath, err := app.DefaultDBPath()
+	if err != nil {
+		return nil, nil, err
+	}
+	repo, err := store.NewSQLiteStore(dbPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	svc := app.NewService(repo)
+	if err := svc.Init(); err != nil {
+		repo.Close()
+		return nil, nil, err
+	}
+	s.svc = svc
+	return svc, func() { _ = repo.Close() }, nil
 }
