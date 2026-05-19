@@ -1,4 +1,4 @@
-module nt-cli
+module flint
 
 go 1.22
 

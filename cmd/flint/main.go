@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"nt-cli/internal/app"
-	"nt-cli/internal/mcp"
-	"nt-cli/internal/store"
+	"flint/internal/app"
+	"flint/internal/mcp"
+	"flint/internal/store"
 )
 
 // version is set at build time via -ldflags "-X main.version=<tag>".
@@ -28,6 +28,10 @@ func main() {
 		return
 	}
 
+	if cmd == "init" {
+		os.Exit(app.RunInitOrProfile(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+	}
+
 	dbPath, err := app.DefaultDBPath()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
@@ -43,26 +47,6 @@ func main() {
 
 	svc := app.NewService(repo)
 
-	// init prints the canonical path; everything else flows through RunCLI.
-	if cmd == "init" {
-		if err := svc.Init(); err != nil {
-			fmt.Fprintf(os.Stderr, "init failed: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("initialized at %s\n", dbPath)
-		if containsFlag(os.Args[2:], "--legacy") {
-			if code := app.RunInitProfile(os.Args[2:], os.Stdin, os.Stdout, os.Stderr); code != 0 {
-				os.Exit(code)
-			}
-			return
-		}
-		if err := app.RunInit(os.Args[2:]); err != nil {
-			fmt.Fprintf(os.Stderr, "init failed: %v\n", err)
-			os.Exit(1)
-		}
-		return
-	}
-
 	// Resolve active project at boot and inject into service so all
 	// read/write paths are automatically scoped (tasks 2.4–2.6).
 	if activeProj, err := repo.GetActive(); err == nil {
@@ -70,13 +54,4 @@ func main() {
 	}
 
 	os.Exit(app.RunCLIWithStdin(svc, os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
-}
-
-func containsFlag(args []string, target string) bool {
-	for _, a := range args {
-		if a == target {
-			return true
-		}
-	}
-	return false
 }
