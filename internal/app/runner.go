@@ -11,7 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"nt-cli/internal/parity"
+	"flint/internal/model"
+	"flint/internal/parity"
 )
 
 type summaryNote struct {
@@ -68,6 +69,23 @@ func RunCLI(svc *Service, args []string, stdout, stderr io.Writer) int {
 	return runCLIWithInput(svc, args, os.Stdin, stdout, stderr)
 }
 
+// RunInitOrProfile routes init execution to either the new v2 init runner
+// (RunInit) or the legacy profile-only runner (RunInitProfile).
+//
+// It accepts either a pure init-args slice (e.g. []string{"--legacy"}) or a
+// full command slice that still includes the leading "init"
+// (e.g. os.Args[1:]).
+func RunInitOrProfile(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	initArgs := args
+	if len(initArgs) > 0 && strings.TrimSpace(initArgs[0]) == "init" {
+		initArgs = initArgs[1:]
+	}
+	if hasFlag(initArgs, "--legacy") || hasFlag(initArgs, "--profile") {
+		return RunInitProfile(initArgs, stdin, stdout, stderr)
+	}
+	return RunInit(initArgs, stdin, stdout, stderr)
+}
+
 func runCLIWithInput(svc *Service, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
 		printUsage(stdout)
@@ -81,14 +99,7 @@ func runCLIWithInput(svc *Service, args []string, stdin io.Reader, stdout, stder
 			return 1
 		}
 		fmt.Fprintln(stdout, "initialized")
-		if hasFlag(args[1:], "--legacy") {
-			return RunInitProfile(args[1:], stdin, stdout, stderr)
-		}
-		if err := runInit(args[1:], stdin, stdout, stderr); err != nil {
-			fmt.Fprintf(stderr, "init failed: %v\n", err)
-			return 1
-		}
-		return 0
+		return RunInitOrProfile(args[1:], stdin, stdout, stderr)
 
 	case "save":
 		if len(args) < 2 {
@@ -820,7 +831,7 @@ func runParity(svc *Service, args []string, stdout, stderr io.Writer) int {
 }
 
 // parityScorecardFlags is the set of int flags accepted by
-// `nt-cli parity scorecard`. They map 1:1 to parity.ScorecardSignals
+// `nt-cli parity scorecard`. They map 1:1 to model.ScorecardSignals
 // fields so changes to the contract surface here as compile errors.
 type parityScorecardFlags struct {
 	coreOps                int
@@ -872,7 +883,7 @@ func runParityScorecard(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, err.Error())
 		return 1
 	}
-	v := parity.ComputeScorecard(parity.ScorecardSignals{
+	v := parity.ComputeScorecard(model.ScorecardSignals{
 		CoreOps:                flags.coreOps,
 		MetadataRetrieval:      flags.metadataRetrieval,
 		SessionWorkflow:        flags.sessionWorkflow,

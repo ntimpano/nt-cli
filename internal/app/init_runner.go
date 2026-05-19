@@ -2,120 +2,148 @@ package app
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"flint/internal/model"
 )
 
-// RunInit executes the redesigned 7-step init flow using process stdio.
-func RunInit(args []string) error {
-	return runInit(args, os.Stdin, os.Stdout, os.Stderr)
+const (
+	initWorkflowSourcePath = "/opt/nt-cli/workflows.json"
+)
+
+type initState struct {
+	profile model.ProfileConfig
+	runtime model.RuntimeConfig
+}
+
+type initRunner struct {
+	stdin          io.Reader
+	stdout         io.Writer
+	stderr         io.Writer
+	scanner        *bufio.Scanner
+	nonInteractive bool
+	force          bool
+
+	state initState
+}
+
+// RunInit executes the redesigned 7-step init flow.
+func RunInit(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if err := runInit(args, stdin, stdout, stderr); err != nil {
+		fmt.Fprintf(stderr, "init failed: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 func runInit(args []string, stdin io.Reader, stdout, stderr io.Writer) error {
+	r, err := newInitRunner(args, stdin, stdout, stderr)
+	if err != nil {
+		return err
+	}
+	return r.run()
+}
+
+func newInitRunner(args []string, stdin io.Reader, stdout, stderr io.Writer) (*initRunner, error) {
 	force, nonInteractive, err := parseInitFlags(args)
 	if err != nil {
-		return err
+		return nil, err
 	}
-
-	var scanner *bufio.Scanner
+	r := &initRunner{
+		stdin:          stdin,
+		stdout:         stdout,
+		stderr:         stderr,
+		nonInteractive: nonInteractive,
+		force:          force,
+		state: initState{
+			profile: Defaults(),
+			runtime: DefaultRuntimeConfig(),
+		},
+	}
 	if !nonInteractive {
-		scanner = bufio.NewScanner(stdin)
+		r.scanner = bufio.NewScanner(stdin)
 	}
+	r.loadExistingDefaults()
+	return r, nil
+}
 
-	fmt.Fprintln(stdout, "Step 1/7 — Prerequisites check")
-	if err := checkPrerequisites(stderr); err != nil {
+func (r *initRunner) run() error {
+	fmt.Fprintln(r.stdout, "Step 1/7 — Prerequisites check")
+	if err := r.checkPrerequisites(); err != nil {
 		return err
 	}
-
-	profilePath, err := ProfilePath()
-	if err != nil {
-		return err
-	}
-	runtimePath, err := runtimeConfigPath()
-	if err != nil {
-		return err
-	}
-	if !force && (pathExists(profilePath) || pathExists(runtimePath)) {
-		fmt.Fprintln(stdout, "Init already configured (use --force or -f to re-run all steps)")
+	if !r.force && r.alreadyConfigured() {
+		fmt.Fprintln(r.stdout, "Init already configured (use --force or -f to re-run all steps)")
 		return nil
 	}
 
-	fmt.Fprintln(stdout, "Step 2/7 — Runtime selection")
-	runtimeType := RuntimeOpenCode
-	if nonInteractive {
-		printRuntimeMenu(stdout)
-		fmt.Fprintln(stdout, "Auto-selected runtime: OpenCode")
-	} else {
-		runtimeType = selectRuntime(scanner, stdout)
-	}
+	fmt.Fprintln(r.stdout, "Step 2/7 — Runtime selection")
+	detected := detectAvailableRuntimes()
+	runtime := r.selectRuntime(detected)
 
-	fmt.Fprintln(stdout, "Step 3/7 — AI model selection")
-	modelCfg := DefaultRuntimeConfig().Models
-	if nonInteractive {
-		fmt.Fprintln(stdout, "non-interactive mode: using free tier defaults")
-	} else {
-		modelCfg = configureModels(scanner, stdout)
-	}
+	fmt.Fprintln(r.stdout, "Step 3/7 — AI model selection")
+	models := r.configureModels(runtime)
 
-	fmt.Fprintln(stdout, "Step 4/7 — Primary domain")
-	domain := "dev"
-	if nonInteractive {
-		fmt.Fprintln(stdout, "non-interactive mode: primary domain = software development")
-	} else {
-		domain = selectDomain(scanner, stdout)
-	}
+	fmt.Fprintln(r.stdout, "Step 4/7 — Primary domain")
+	domain := r.selectDomain()
 
-	fmt.Fprintln(stdout, "Step 5/7 — Tone & persona")
-	profile := Defaults()
+	fmt.Fprintln(r.stdout, "Step 5/7 — Tone & persona")
+	profile := r.configureProfile()
 	profile.PrimaryDomain = domain
-	if nonInteractive {
-		fmt.Fprintln(stdout, "non-interactive mode: using profile defaults")
-	} else {
-		profile = configurePersona(scanner, stdout, profile)
-		profile.PrimaryDomain = domain
+
+	fmt.Fprintln(r.stdout, "Step 6/7 — Write configs")
+	if err := r.writeConfigs(runtime, models, domain, profile); err != nil {
+		return err
 	}
 
-	fmt.Fprintln(stdout, "Step 6/7 — Write configs")
-	rc := RuntimeConfig{Runtime: runtimeType, Models: modelCfg}
-	if err := profile.Save(); err != nil {
-		return fmt.Errorf("profile save failed: %w", err)
+	fmt.Fprintln(r.stdout, "Step 7/7 — Verify MCP connection")
+	if err := r.verifyMCP(runtime); err != nil {
+		return err
 	}
-	fmt.Fprintln(stdout, "✓ profile.json saved")
-	if err := rc.Save(); err != nil {
-		return fmt.Errorf("runtime config save failed: %w", err)
-	}
-	fmt.Fprintln(stdout, "✓ config.json saved")
-
-	fmt.Fprintln(stdout, "Step 7/7 — Verify MCP connection")
-	verifyMCP(stdout)
-
-	_ = runtimeType // reserved for future runtimes
 	return nil
 }
 
-func parseInitFlags(args []string) (force bool, nonInteractive bool, err error) {
-	for _, a := range args {
-		switch strings.TrimSpace(a) {
-		case "--force", "-f":
-			force = true
-		case "--non-interactive":
-			nonInteractive = true
-		case "", "--legacy":
-			// handled by runner dispatch; ignored here
-		default:
-			if strings.HasPrefix(a, "-") {
-				return false, false, fmt.Errorf("unknown init flag: %s", a)
-			}
-		}
+func (r *initRunner) loadExistingDefaults() {
+	if existing := LoadProfile(); ValidateProfile(existing) == nil {
+		r.state.profile = existing
 	}
-	return force, nonInteractive, nil
+	if existing, err := LoadRuntimeConfig(); err == nil {
+		r.state.runtime = existing
+	}
+	if strings.TrimSpace(r.state.profile.PrimaryDomain) == "" {
+		r.state.profile.PrimaryDomain = r.state.runtime.PrimaryDomain
+	}
+	if strings.TrimSpace(r.state.profile.PrimaryDomain) == "" {
+		r.state.profile.PrimaryDomain = "dev"
+	}
 }
 
-func checkPrerequisites(stderr io.Writer) error {
+func (r *initRunner) alreadyConfigured() bool {
+	profilePath, err := ProfilePath()
+	if err != nil {
+		return false
+	}
+	runtimePath, err := RuntimeConfigPath()
+	if err != nil {
+		return false
+	}
+	return pathExists(profilePath) || pathExists(runtimePath)
+}
+
+func (r *initRunner) checkPrerequisites() error {
+	if _, err := os.Executable(); err != nil {
+		return fmt.Errorf("unable to resolve nt-cli binary: %w", err)
+	}
+	if len(detectAvailableRuntimes()) == 0 {
+		return fmt.Errorf("no supported runtime detected")
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return err
@@ -123,112 +151,94 @@ func checkPrerequisites(stderr io.Writer) error {
 	opencodeDir := filepath.Join(home, ".config", "opencode")
 	st, err := os.Stat(opencodeDir)
 	if err != nil || !st.IsDir() {
-		fmt.Fprintln(stderr, "OpenCode runtime not detected.")
-		fmt.Fprintln(stderr, "Install/setup OpenCode and then re-run init.")
-		fmt.Fprintln(stderr, "Expected directory: ~/.config/opencode/")
-		fmt.Fprintln(stderr, "Docs: https://opencode.ai")
+		fmt.Fprintln(r.stderr, "OpenCode runtime not detected.")
+		fmt.Fprintln(r.stderr, "Install/setup OpenCode and then re-run init.")
+		fmt.Fprintln(r.stderr, "Expected directory: ~/.config/opencode/")
+		fmt.Fprintln(r.stderr, "Docs: https://opencode.ai")
 		return fmt.Errorf("missing OpenCode runtime")
 	}
 	return nil
 }
 
-func printRuntimeMenu(stdout io.Writer) {
-	fmt.Fprintln(stdout, "Select runtime:")
-	fmt.Fprintln(stdout, "  [1] OpenCode (installed ✓)")
-	fmt.Fprintln(stdout, "  [2] Claude Code (coming soon)")
-	fmt.Fprintln(stdout, "  [3] Cursor (coming soon)")
+func (r *initRunner) selectRuntime(detected []Runtime) Runtime {
+	if len(detected) == 0 {
+		return OpenCodeRuntime{}
+	}
+	if r.nonInteractive {
+		fmt.Fprintln(r.stdout, "Auto-selected runtime: OpenCode")
+		return detected[0]
+	}
+	printRuntimeMenu(r.stdout, detected)
+	defaultChoice := runtimeIndexByName(detected, r.state.runtime.RuntimeDef.Type) + 1
+	if defaultChoice <= 0 {
+		defaultChoice = 1
+	}
+	fmt.Fprintf(r.stdout, "Runtime [%d]: ", defaultChoice)
+	if !r.scanner.Scan() {
+		return detected[defaultChoice-1]
+	}
+	choice := strings.TrimSpace(r.scanner.Text())
+	if choice == "" {
+		return detected[defaultChoice-1]
+	}
+	if choice == "1" {
+		return detected[0]
+	}
+	fmt.Fprintln(r.stdout, "That runtime is coming soon; using OpenCode for now.")
+	return detected[0]
 }
 
-func selectRuntime(scanner *bufio.Scanner, stdout io.Writer) RuntimeType {
-	printRuntimeMenu(stdout)
-	fmt.Fprint(stdout, "Runtime [1]: ")
-	if !scanner.Scan() {
-		return RuntimeOpenCode
+func (r *initRunner) configureModels(runtime Runtime) model.ModelTiers {
+	_ = runtime
+	current := r.state.runtime.Models
+	if r.nonInteractive {
+		fmt.Fprintln(r.stdout, "non-interactive mode: using free tier defaults")
+		return DefaultRuntimeConfig().Models
 	}
-	choice := strings.TrimSpace(scanner.Text())
-	switch choice {
+	fmt.Fprintln(r.stdout, "Select model profile:")
+	fmt.Fprintln(r.stdout, "  [1] Keep current")
+	fmt.Fprintln(r.stdout, "  [2] Free tier defaults")
+	fmt.Fprintf(r.stdout, "Model option [1]: ")
+	if !r.scanner.Scan() {
+		return current
+	}
+	switch strings.TrimSpace(r.scanner.Text()) {
 	case "", "1":
-		return RuntimeOpenCode
-	case "2", "3":
-		fmt.Fprintln(stdout, "That runtime is coming soon; using OpenCode for now.")
-		return RuntimeOpenCode
-	default:
-		fmt.Fprintln(stdout, "Invalid runtime choice; using OpenCode.")
-		return RuntimeOpenCode
-	}
-}
-
-func configureModels(scanner *bufio.Scanner, stdout io.Writer) ModelTiers {
-	current, err := LoadRuntimeConfig()
-	if err != nil {
-		current = DefaultRuntimeConfig()
-	}
-	defaults := DefaultRuntimeConfig()
-
-	fmt.Fprintln(stdout, "Select model profile:")
-	fmt.Fprintln(stdout, "  [1] Free tier (OpenCode built-in) — no API key needed")
-	fmt.Fprintln(stdout, "  [2] Claude API (your own key) — best reasoning, recommended for complex tasks")
-	fmt.Fprintln(stdout, "  [3] OpenAI API (your own key) — strong alternative")
-	fmt.Fprintln(stdout, "  [4] Keep current / skip")
-	fmt.Fprintln(stdout, "For complex reasoning tasks (architecture, design decisions), Claude Opus is best. For execution, Claude Sonnet. For quick lookups, Haiku or GPT-4o-mini.")
-	fmt.Fprint(stdout, "Model option [1]: ")
-	if !scanner.Scan() {
-		return defaults.Models
-	}
-	choice := strings.TrimSpace(scanner.Text())
-
-	switch choice {
-	case "", "1":
-		return defaults.Models
+		return current
 	case "2":
-		fmt.Fprint(stdout, "Claude API key: ")
-		if !scanner.Scan() {
-			return defaults.Models
-		}
-		key := strings.TrimSpace(scanner.Text())
-		if key == "" {
-			return defaults.Models
-		}
-		return ModelTiers{
-			Thinking:  "claude-opus-api:" + key,
-			Execution: "claude-sonnet-api:" + key,
-			Fast:      "claude-haiku-api:" + key,
-		}
-	case "3":
-		fmt.Fprint(stdout, "OpenAI API key: ")
-		if !scanner.Scan() {
-			return defaults.Models
-		}
-		key := strings.TrimSpace(scanner.Text())
-		if key == "" {
-			return defaults.Models
-		}
-		return ModelTiers{
-			Thinking:  "openai-gpt-4o-api:" + key,
-			Execution: "openai-gpt-4.1-api:" + key,
-			Fast:      "openai-gpt-4o-mini-api:" + key,
-		}
-	case "4":
-		return current.Models
+		return DefaultRuntimeConfig().Models
 	default:
-		fmt.Fprintln(stdout, "Invalid model option; using free tier defaults.")
-		return defaults.Models
+		fmt.Fprintln(r.stdout, "Invalid model option; keeping current.")
+		return current
 	}
 }
 
-func selectDomain(scanner *bufio.Scanner, stdout io.Writer) string {
-	fmt.Fprintln(stdout, "Select primary domain:")
-	fmt.Fprintln(stdout, "  [1] Software development")
-	fmt.Fprintln(stdout, "  [2] Creative work")
-	fmt.Fprintln(stdout, "  [3] Strategy & planning")
-	fmt.Fprintln(stdout, "  [4] Research & analysis")
-	fmt.Fprintln(stdout, "This sets defaults for tone and tools — you're not locked to one domain.")
-	fmt.Fprint(stdout, "Domain [1]: ")
-	if !scanner.Scan() {
+func (r *initRunner) selectDomain() string {
+	current := r.state.profile.PrimaryDomain
+	if strings.TrimSpace(current) == "" {
+		current = r.state.runtime.PrimaryDomain
+	}
+	if strings.TrimSpace(current) == "" {
+		current = "dev"
+	}
+	if r.nonInteractive {
+		fmt.Fprintln(r.stdout, "non-interactive mode: primary domain = software development")
 		return "dev"
 	}
-	switch strings.TrimSpace(scanner.Text()) {
-	case "", "1":
+	fmt.Fprintln(r.stdout, "Select primary domain:")
+	fmt.Fprintln(r.stdout, "  [1] Software development")
+	fmt.Fprintln(r.stdout, "  [2] Creative work")
+	fmt.Fprintln(r.stdout, "  [3] Strategy & planning")
+	fmt.Fprintln(r.stdout, "  [4] Research & analysis")
+	defaultIndex := domainIndex(current)
+	fmt.Fprintf(r.stdout, "Domain [%d]: ", defaultIndex)
+	if !r.scanner.Scan() {
+		return current
+	}
+	switch strings.TrimSpace(r.scanner.Text()) {
+	case "":
+		return current
+	case "1":
 		return "dev"
 	case "2":
 		return "creative"
@@ -237,20 +247,33 @@ func selectDomain(scanner *bufio.Scanner, stdout io.Writer) string {
 	case "4":
 		return "research"
 	default:
-		fmt.Fprintln(stdout, "Invalid domain; using software development.")
-		return "dev"
+		fmt.Fprintln(r.stdout, "Invalid domain; keeping current.")
+		return current
 	}
 }
 
-func configurePersona(scanner *bufio.Scanner, stdout io.Writer, cfg ProfileConfig) ProfileConfig {
-	fmt.Fprintln(stdout, "Language:")
-	fmt.Fprintln(stdout, "  [1] Spanish (Argentina)")
-	fmt.Fprintln(stdout, "  [2] Spanish (neutral)")
-	fmt.Fprintln(stdout, "  [3] English")
-	fmt.Fprint(stdout, "Language [1]: ")
-	if scanner.Scan() {
-		switch strings.TrimSpace(scanner.Text()) {
-		case "", "1":
+func (r *initRunner) configureProfile() model.ProfileConfig {
+	if r.nonInteractive {
+		fmt.Fprintln(r.stdout, "non-interactive mode: using profile defaults")
+		return Defaults()
+	}
+	cfg := r.state.profile
+	defaultLang := "1"
+	if cfg.Language == "en" {
+		defaultLang = "3"
+	} else if cfg.Tone == "neutral" {
+		defaultLang = "2"
+	}
+	fmt.Fprintln(r.stdout, "Language:")
+	fmt.Fprintln(r.stdout, "  [1] Spanish (Argentina)")
+	fmt.Fprintln(r.stdout, "  [2] Spanish (neutral)")
+	fmt.Fprintln(r.stdout, "  [3] English")
+	fmt.Fprintf(r.stdout, "Language [%s]: ", defaultLang)
+	if r.scanner.Scan() {
+		switch strings.TrimSpace(r.scanner.Text()) {
+		case "", defaultLang:
+			// keep current
+		case "1":
 			cfg.Language = "es"
 			cfg.Tone = "argentino"
 		case "2":
@@ -262,17 +285,17 @@ func configurePersona(scanner *bufio.Scanner, stdout io.Writer, cfg ProfileConfi
 		}
 	}
 
-	fmt.Fprintln(stdout, "Tone:")
-	fmt.Fprintln(stdout, "  [1] Warm and direct")
-	fmt.Fprintln(stdout, "  [2] Formal")
-	fmt.Fprintln(stdout, "  [3] Concise")
-	fmt.Fprint(stdout, "Tone [1]: ")
-	if scanner.Scan() {
-		switch strings.TrimSpace(scanner.Text()) {
+	fmt.Fprintln(r.stdout, "Tone:")
+	fmt.Fprintln(r.stdout, "  [1] Warm and direct")
+	fmt.Fprintln(r.stdout, "  [2] Formal")
+	fmt.Fprintln(r.stdout, "  [3] Concise")
+	fmt.Fprint(r.stdout, "Tone [1]: ")
+	if r.scanner.Scan() {
+		switch strings.TrimSpace(r.scanner.Text()) {
 		case "", "1":
 			if cfg.Language == "en" {
 				cfg.Tone = "english"
-			} else {
+			} else if cfg.Tone != "neutral" {
 				cfg.Tone = "argentino"
 			}
 		case "2", "3":
@@ -280,46 +303,247 @@ func configurePersona(scanner *bufio.Scanner, stdout io.Writer, cfg ProfileConfi
 		}
 	}
 
-	fmt.Fprintln(stdout, "Verbosity:")
-	fmt.Fprintln(stdout, "  [1] Short (default)")
-	fmt.Fprintln(stdout, "  [2] Detailed")
-	fmt.Fprint(stdout, "Verbosity [1]: ")
-	if scanner.Scan() {
-		switch strings.TrimSpace(scanner.Text()) {
-		case "", "1":
+	defaultVerbosity := "1"
+	if cfg.Verbosity == "verbose" {
+		defaultVerbosity = "2"
+	}
+	fmt.Fprintln(r.stdout, "Verbosity:")
+	fmt.Fprintln(r.stdout, "  [1] Short")
+	fmt.Fprintln(r.stdout, "  [2] Detailed")
+	fmt.Fprintf(r.stdout, "Verbosity [%s]: ", defaultVerbosity)
+	if r.scanner.Scan() {
+		switch strings.TrimSpace(r.scanner.Text()) {
+		case "", defaultVerbosity:
+			// keep current
+		case "1":
 			cfg.Verbosity = "short"
 		case "2":
 			cfg.Verbosity = "verbose"
 		}
 	}
-
-	if v, err := promptBool(scanner, stdout, "Ask before mutations", cfg.AskBeforeMutation); err == nil {
+	if v, err := promptBool(r.scanner, r.stdout, "ask_before_mutation", cfg.AskBeforeMutation); err == nil {
 		cfg.AskBeforeMutation = v
 	}
-	if v, err := promptBool(scanner, stdout, "Context autoswitch", cfg.ContextAutoswitch); err == nil {
+	if v, err := promptBool(r.scanner, r.stdout, "context_autoswitch", cfg.ContextAutoswitch); err == nil {
 		cfg.ContextAutoswitch = v
 	}
-
 	return cfg
 }
 
-func verifyMCP(stdout io.Writer) {
+func (r *initRunner) writeConfigs(runtime Runtime, models model.ModelTiers, domain string, profile model.ProfileConfig) error {
+	runtimeCfg := r.state.runtime
+	runtimeCfg.Runtime = RuntimeType(runtime.Name())
+	runtimeCfg.RuntimeDef.Type = runtime.Name()
+	runtimeCfg.Models = models
+	runtimeCfg.PrimaryDomain = domain
+	if strings.TrimSpace(runtimeCfg.RuntimeDef.AgentConfigPath) == "" {
+		runtimeCfg.RuntimeDef.AgentConfigPath = runtime.AgentConfigPath()
+	}
+	if err := SaveRuntimeConfig(runtimeCfg); err != nil {
+		return fmt.Errorf("runtime config save failed: %w", err)
+	}
+	fmt.Fprintln(r.stdout, "✓ config.json saved")
+
+	if err := SaveProfile(profile); err != nil {
+		return fmt.Errorf("profile save failed: %w", err)
+	}
+	r.state.runtime = runtimeCfg
+	r.state.profile = profile
+	fmt.Fprintln(r.stdout, "✓ profile.json saved")
+
+	if err := copyWorkflowCatalog(); err != nil {
+		return err
+	}
+	fmt.Fprintln(r.stdout, "✓ workflows.json copied")
+
+	if err := mergeOpencodeAgents(); err != nil {
+		return err
+	}
+	fmt.Fprintln(r.stdout, "✓ opencode.json merged")
+	return nil
+}
+
+func (r *initRunner) verifyMCP(runtime Runtime) error {
+	if err := r.verifyMCPScript(); err != nil {
+		return err
+	}
+
 	home, err := os.UserHomeDir()
 	if err != nil {
-		fmt.Fprintln(stdout, "⚠ unable to resolve home directory — run: nt-cli setup-opencode")
-		return
+		fmt.Fprintln(r.stdout, "⚠ unable to resolve home directory — run: nt-cli setup-opencode")
+		return nil
 	}
-	opencodeConfig := filepath.Join(home, ".config", "opencode", "opencode.json")
-	body, err := os.ReadFile(opencodeConfig)
+	path := filepath.Join(home, ".config", "opencode", "opencode.json")
+	body, err := os.ReadFile(path)
 	if err != nil {
-		fmt.Fprintln(stdout, "⚠ opencode.json not found — run: nt-cli setup-opencode")
-		return
+		fmt.Fprintln(r.stdout, "⚠ opencode.json not found — run: nt-cli setup-opencode")
+		return nil
 	}
 	if hasNTCLIMCPEntry(body) {
-		fmt.Fprintln(stdout, "✓ MCP connection verified")
-		return
+		fmt.Fprintln(r.stdout, "✓ MCP connection verified")
+		return nil
 	}
-	fmt.Fprintln(stdout, "⚠ nt-cli MCP server not configured — run: nt-cli setup-opencode")
+	fmt.Fprintf(r.stdout, "⚠ nt-cli MCP server not configured for runtime %s — run: nt-cli setup-opencode\n", runtime.Name())
+	return nil
+}
+
+func (r *initRunner) verifyMCPScript() error {
+	script := strings.TrimSpace(r.state.runtime.RuntimeDef.MCPScript)
+	if script == "" {
+		return nil
+	}
+
+	parts := strings.Fields(script)
+	if len(parts) == 0 {
+		return nil
+	}
+
+	prog, err := expandHome(parts[0])
+	if err != nil {
+		return fmt.Errorf("mcp verification failed: %w", err)
+	}
+	if prog == "" {
+		return nil
+	}
+	parts[0] = prog
+
+	if _, err := exec.LookPath(parts[0]); err != nil {
+		// Keep init backward-compatible when the configured script is not present yet.
+		return nil
+	}
+
+	cmd := exec.Command(parts[0], parts[1:]...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		failure := strings.TrimSpace(stderr.String())
+		if failure == "" {
+			failure = err.Error()
+		}
+		return fmt.Errorf("mcp verification failed: %s", failure)
+	}
+
+	return nil
+}
+
+func parseInitFlags(args []string) (force bool, nonInteractive bool, err error) {
+	for _, a := range args {
+		switch strings.TrimSpace(a) {
+		case "--force", "-f":
+			force = true
+		case "--non-interactive":
+			nonInteractive = true
+		case "", "--legacy", "--profile":
+			// handled by runner dispatch; ignored here
+		default:
+			if strings.HasPrefix(a, "-") {
+				return false, false, fmt.Errorf("unknown init flag: %s", a)
+			}
+		}
+	}
+	return force, nonInteractive, nil
+}
+
+func printRuntimeMenu(stdout io.Writer, detected []Runtime) {
+	fmt.Fprintln(stdout, "Select runtime:")
+	for i, rt := range detected {
+		name := rt.Name()
+		if name == runtimeTypeOpenCode {
+			name = "OpenCode"
+		}
+		fmt.Fprintf(stdout, "  [%d] %s\n", i+1, name)
+	}
+	fmt.Fprintln(stdout, "  [2] Claude Code (coming soon)")
+	fmt.Fprintln(stdout, "  [3] Cursor (coming soon)")
+}
+
+func runtimeIndexByName(detected []Runtime, name string) int {
+	for i, rt := range detected {
+		if rt.Name() == name {
+			return i
+		}
+	}
+	return 0
+}
+
+func domainIndex(domain string) int {
+	switch strings.TrimSpace(domain) {
+	case "creative":
+		return 2
+	case "strategy":
+		return 3
+	case "research":
+		return 4
+	default:
+		return 1
+	}
+}
+
+func copyWorkflowCatalog() error {
+	body, err := os.ReadFile(initWorkflowSourcePath)
+	if err != nil {
+		return fmt.Errorf("workflow catalog read failed: %w", err)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	dst := filepath.Join(home, ".nt-cli", "workflows.json")
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	if err := os.WriteFile(dst, body, 0o644); err != nil {
+		return fmt.Errorf("workflow catalog write failed: %w", err)
+	}
+	return nil
+}
+
+func mergeOpencodeAgents() error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return err
+	}
+	bundlePath := filepath.Join("/opt/nt-cli", ".nt-cli-agents.json")
+	bundleBytes, err := os.ReadFile(bundlePath)
+	if err != nil {
+		return fmt.Errorf("agent bundle read failed: %w", err)
+	}
+	var bundle map[string]interface{}
+	if err := json.Unmarshal(bundleBytes, &bundle); err != nil {
+		return fmt.Errorf("agent bundle parse failed: %w", err)
+	}
+
+	opencodePath := filepath.Join(home, ".config", "opencode", "opencode.json")
+	if err := os.MkdirAll(filepath.Dir(opencodePath), 0o755); err != nil {
+		return err
+	}
+
+	existing := map[string]interface{}{}
+	if data, err := os.ReadFile(opencodePath); err == nil {
+		if err := json.Unmarshal(data, &existing); err != nil {
+			return fmt.Errorf("opencode.json parse failed: %w", err)
+		}
+	}
+
+	agents := map[string]interface{}{}
+	if raw, ok := existing["agent"].(map[string]interface{}); ok {
+		for k, v := range raw {
+			agents[k] = v
+		}
+	}
+	for k, v := range bundle {
+		if strings.HasPrefix(k, "nt-") {
+			agents[k] = v
+		}
+	}
+	existing["agent"] = agents
+
+	body, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		return err
+	}
+	body = append(body, '\n')
+	return os.WriteFile(opencodePath, body, 0o644)
 }
 
 func hasNTCLIMCPEntry(body []byte) bool {

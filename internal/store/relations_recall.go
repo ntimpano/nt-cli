@@ -3,7 +3,7 @@ package store
 import (
 	"strings"
 
-	"nt-cli/internal/app"
+	"flint/internal/model"
 )
 
 // RecallGraphAware augments the FTS recall path with graph-aware
@@ -49,7 +49,7 @@ import (
 // continuity-score uplift target while staying obviously correct on
 // inspection — important for a feature behind a flag whose purpose
 // is to ship safely).
-func (s *SQLiteStore) RecallGraphAware(opts app.RecallOptions) ([]app.MemoryItem, error) {
+func (s *SQLiteStore) RecallGraphAware(opts model.RecallOptions) ([]model.MemoryItem, error) {
 	if strings.TrimSpace(opts.Query) == "" {
 		return nil, nil
 	}
@@ -97,7 +97,7 @@ func (s *SQLiteStore) RecallGraphAware(opts app.RecallOptions) ([]app.MemoryItem
 	boostable := map[int64]struct{}{}
 
 	for _, c := range candidates {
-		out, err := s.Neighbors(c.ID, app.RelationDirectionOutbound)
+		out, err := s.Neighbors(c.ID, model.RelationDirectionOutbound)
 		if err != nil {
 			return nil, err
 		}
@@ -130,9 +130,9 @@ func (s *SQLiteStore) RecallGraphAware(opts app.RecallOptions) ([]app.MemoryItem
 	}
 
 	top := candidates[0]
-	for _, dir := range []app.RelationDirection{
-		app.RelationDirectionOutbound,
-		app.RelationDirectionInbound,
+	for _, dir := range []model.RelationDirection{
+		model.RelationDirectionOutbound,
+		model.RelationDirectionInbound,
 	} {
 		edges, err := s.Neighbors(top.ID, dir)
 		if err != nil {
@@ -143,7 +143,7 @@ func (s *SQLiteStore) RecallGraphAware(opts app.RecallOptions) ([]app.MemoryItem
 				continue
 			}
 			var other int64
-			if dir == app.RelationDirectionOutbound {
+			if dir == model.RelationDirectionOutbound {
 				other = e.TargetID
 			} else {
 				other = e.SourceID

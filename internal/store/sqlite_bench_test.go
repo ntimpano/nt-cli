@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // seedLargeStore inserts n synthetic rows with predictable token distribution.

@@ -5,33 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"flint/internal/model"
 )
-
-// RelationDirection selects how Neighbors traverses memory_relations.
-// Outbound returns edges where the queried id is the source; Inbound
-// returns edges where it is the target. Kept as an explicit enum (not a
-// bool) so future call sites — e.g. an "any" or "both" mode added in a
-// later milestone — extend without breaking existing callers.
-type RelationDirection int
-
-const (
-	// RelationDirectionOutbound lists edges where source_id == queried id.
-	RelationDirectionOutbound RelationDirection = iota
-	// RelationDirectionInbound lists edges where target_id == queried id.
-	RelationDirectionInbound
-)
-
-// MemoryRelation is one row of the memory_relations table — a typed,
-// directed edge between two memory_items. Mirrors the store-layer
-// projection so callers consume a single shape regardless of traversal
-// direction. CreatedAt is UTC.
-type MemoryRelation struct {
-	ID           int64
-	SourceID     int64
-	TargetID     int64
-	RelationType string
-	CreatedAt    time.Time
-}
 
 // AllowedRelationTypes is the curated whitelist of relation_type values
 // accepted by the v4 schema CHECK constraint. Service- and MCP-layer
@@ -65,7 +41,7 @@ func IsAllowedRelationType(t string) bool {
 // the graph surface still compile against Store.
 type RelationStore interface {
 	CreateRelation(sourceID, targetID int64, relationType string, at time.Time) error
-	Neighbors(id int64, dir RelationDirection) ([]MemoryRelation, error)
+	Neighbors(id int64, dir model.RelationDirection) ([]model.MemoryRelation, error)
 }
 
 // Relate validates and persists a typed directed edge between two memory
@@ -110,7 +86,7 @@ func (s *Service) Relate(sourceID, targetID int64, relationType string) error {
 //
 // Same defensive capability guard as Relate — a store that doesn't
 // implement RelationStore fails fast rather than silently returning nil.
-func (s *Service) Neighbors(id int64, dir RelationDirection) ([]MemoryRelation, error) {
+func (s *Service) Neighbors(id int64, dir model.RelationDirection) ([]model.MemoryRelation, error) {
 	if id <= 0 {
 		return nil, errors.New("id must be positive")
 	}
@@ -138,7 +114,7 @@ func (s *Service) Neighbors(id int64, dir RelationDirection) ([]MemoryRelation, 
 // Stronger relation types (supersedes/refines/depends_on/conflicts_with)
 // stay opt-in; auto-link defaults to the safest verb so confirmation is
 // a low-risk Yes/No for the operator.
-func (s *Service) SuggestRelations(req SaveRequest) ([]MemoryRelation, error) {
+func (s *Service) SuggestRelations(req model.SaveRequest) ([]model.MemoryRelation, error) {
 	topic := strings.TrimSpace(req.TopicKey)
 	if topic == "" {
 		return nil, nil
@@ -157,7 +133,7 @@ func (s *Service) SuggestRelations(req SaveRequest) ([]MemoryRelation, error) {
 	if err != nil {
 		return nil, err
 	}
-	out := make([]MemoryRelation, 0, 3)
+	out := make([]model.MemoryRelation, 0, 3)
 	seen := map[int64]struct{}{}
 	for _, h := range hits {
 		if h.ID <= 0 {
@@ -167,7 +143,7 @@ func (s *Service) SuggestRelations(req SaveRequest) ([]MemoryRelation, error) {
 			continue
 		}
 		seen[h.ID] = struct{}{}
-		out = append(out, MemoryRelation{
+		out = append(out, model.MemoryRelation{
 			// ID=0 marks this as an unsaved proposal. SourceID=0
 			// because the caller's row id is not known yet (the host
 			// save commits AFTER suggestion review per spec).

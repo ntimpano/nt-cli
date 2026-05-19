@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // TestRestore_ReopenStore_ReappliesForeignKeys verifies BUG-07: after a

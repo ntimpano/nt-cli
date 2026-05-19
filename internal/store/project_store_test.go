@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // TestProjectStore_CRUD covers task 1.6: project store exposes

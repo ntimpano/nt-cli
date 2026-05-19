@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // importMemStore extends memStore with ImportStore so RunCLI can dispatch

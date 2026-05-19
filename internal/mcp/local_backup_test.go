@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // backupMemStoreMCP wraps memStore with BackupStore so MCP can dispatch

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // projectMemStore extends filterMemStore with ProjectStore-like stubs

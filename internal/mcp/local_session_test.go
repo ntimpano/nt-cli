@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // sessionMemStore extends the existing memStore (defined in server_test.go)

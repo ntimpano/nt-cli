@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // filterMemStore extends memStore with FilterStore + MetadataStore so

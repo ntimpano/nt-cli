@@ -3,7 +3,7 @@ package mcp
 import (
 	"testing"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 func TestMCP_RelateSchema_ParityWithAllowedRelationTypes(t *testing.T) {

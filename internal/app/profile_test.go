@@ -14,6 +14,9 @@ func TestDefaults(t *testing.T) {
 	if cfg.Language != "es" || cfg.Tone != "argentino" || cfg.Verbosity != "short" {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
+	if cfg.PrimaryDomain != "dev" {
+		t.Fatalf("expected primary domain default dev, got %q", cfg.PrimaryDomain)
+	}
 	if !cfg.AskBeforeMutation || !cfg.ContextAutoswitch {
 		t.Fatalf("expected bool defaults true, got %+v", cfg)
 	}
@@ -21,8 +24,16 @@ func TestDefaults(t *testing.T) {
 
 func TestValidate(t *testing.T) {
 	valid := Defaults()
-	if err := valid.Validate(); err != nil {
+	if err := ValidateProfile(valid); err != nil {
 		t.Fatalf("expected valid defaults, got %v", err)
+	}
+
+	for _, domain := range []string{"dev", "creative", "strategy", "research"} {
+		cfg := Defaults()
+		cfg.PrimaryDomain = domain
+		if err := ValidateProfile(cfg); err != nil {
+			t.Fatalf("expected valid primary domain %q, got %v", domain, err)
+		}
 	}
 
 	cases := []struct {
@@ -51,13 +62,20 @@ func TestValidate(t *testing.T) {
 			},
 			want: "verbosity",
 		},
+		{
+			name: "invalid primary domain",
+			mutate: func(c *ProfileConfig) {
+				c.PrimaryDomain = "sales"
+			},
+			want: "primary domain",
+		},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			cfg := Defaults()
 			tc.mutate(&cfg)
-			err := cfg.Validate()
+			err := ValidateProfile(cfg)
 			if err == nil {
 				t.Fatalf("expected validation error")
 			}
@@ -72,6 +90,27 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+func TestRunInitProfilePrimaryDomainFlag(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	var out, errOut bytes.Buffer
+	code := runInitProfile(
+		[]string{"--non-interactive", "--primary-domain=strategy"},
+		strings.NewReader(""),
+		&out,
+		&errOut,
+		false,
+	)
+	if code != 0 {
+		t.Fatalf("expected code 0, got %d stderr=%q", code, errOut.String())
+	}
+	loaded := LoadProfile()
+	if loaded.PrimaryDomain != "strategy" {
+		t.Fatalf("expected primary_domain strategy, got %+v", loaded)
+	}
+}
+
 func TestSaveAtomicWriteAndCleanup(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -80,7 +119,7 @@ func TestSaveAtomicWriteAndCleanup(t *testing.T) {
 	cfg.Language = "en"
 	cfg.Tone = "neutral"
 
-	if err := cfg.Save(); err != nil {
+	if err := SaveProfile(cfg); err != nil {
 		t.Fatalf("save failed: %v", err)
 	}
 
@@ -149,7 +188,7 @@ func TestLoadProfileFallbacks(t *testing.T) {
 
 	valid := Defaults()
 	valid.Language = "en"
-	if err := valid.Save(); err != nil {
+	if err := SaveProfile(valid); err != nil {
 		t.Fatalf("save valid: %v", err)
 	}
 	loaded := LoadProfile()
@@ -189,7 +228,7 @@ func TestRunInitProfileExistingNoForceUnchanged(t *testing.T) {
 
 	original := Defaults()
 	original.Language = "en"
-	if err := original.Save(); err != nil {
+	if err := SaveProfile(original); err != nil {
 		t.Fatalf("pre-save: %v", err)
 	}
 	path, _ := ProfilePath()

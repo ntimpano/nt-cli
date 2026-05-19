@@ -12,7 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
+	"flint/internal/model"
 
 	_ "modernc.org/sqlite"
 )
@@ -578,7 +579,7 @@ func (s *SQLiteStore) Save(content string, createdAt time.Time) (int64, error) {
 // otherwise a new row is INSERTed. The application-level path was chosen over a unique
 // DB constraint to keep future history/versioning flexibility open per
 // design.md §FTS+Topic strategy.
-func (s *SQLiteStore) SaveWithMeta(req app.SaveRequest) (int64, error) {
+func (s *SQLiteStore) SaveWithMeta(req model.SaveRequest) (int64, error) {
 	stamp := req.CreatedAt.Format(time.RFC3339)
 
 	if strings.TrimSpace(req.TopicKey) != "" {
@@ -629,9 +630,9 @@ func (s *SQLiteStore) SaveWithMeta(req app.SaveRequest) (int64, error) {
 // (id, content, created_at, updated_at, title, type, topic_key, scope) order.
 func scanRow(scanner interface {
 	Scan(dest ...any) error
-}) (app.MemoryItem, error) {
+}) (model.MemoryItem, error) {
 	var (
-		it         app.MemoryItem
+		it         model.MemoryItem
 		createdRaw string
 		updatedRaw sql.NullString
 		title      sql.NullString
@@ -643,18 +644,18 @@ func scanRow(scanner interface {
 		&it.ID, &it.Content, &createdRaw, &updatedRaw,
 		&title, &typ, &topicKey, &scope,
 	); err != nil {
-		return app.MemoryItem{}, err
+		return model.MemoryItem{}, err
 	}
 	created, err := time.Parse(time.RFC3339, createdRaw)
 	if err != nil {
-		return app.MemoryItem{}, fmt.Errorf("invalid created_at in db: %w", err)
+		return model.MemoryItem{}, fmt.Errorf("invalid created_at in db: %w", err)
 	}
 	it.CreatedAt = created
 
 	if updatedRaw.Valid && updatedRaw.String != "" {
 		updated, err := time.Parse(time.RFC3339, updatedRaw.String)
 		if err != nil {
-			return app.MemoryItem{}, fmt.Errorf("invalid updated_at in db: %w", err)
+			return model.MemoryItem{}, fmt.Errorf("invalid updated_at in db: %w", err)
 		}
 		it.UpdatedAt = updated
 	} else {
@@ -669,7 +670,7 @@ func scanRow(scanner interface {
 
 const selectColumns = `id, content, created_at, updated_at, title, type, topic_key, scope`
 
-func (s *SQLiteStore) Get(id int64) (app.MemoryItem, error) {
+func (s *SQLiteStore) Get(id int64) (model.MemoryItem, error) {
 	row := s.db.QueryRow(
 		`SELECT `+selectColumns+`
 		 FROM memory_items
@@ -679,9 +680,9 @@ func (s *SQLiteStore) Get(id int64) (app.MemoryItem, error) {
 	it, err := scanRow(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return app.MemoryItem{}, app.ErrNotFound
+			return model.MemoryItem{}, app.ErrNotFound
 		}
-		return app.MemoryItem{}, err
+		return model.MemoryItem{}, err
 	}
 	return it, nil
 }
@@ -703,7 +704,7 @@ func (s *SQLiteStore) Update(id int64, content string, updatedAt time.Time) (boo
 	return affected > 0, nil
 }
 
-func (s *SQLiteStore) Recall(query string, limit int) ([]app.MemoryItem, error) {
+func (s *SQLiteStore) Recall(query string, limit int) ([]model.MemoryItem, error) {
 	if s.useFTS {
 		items, err := s.recallFTS(query, limit)
 		if err == nil {
@@ -732,7 +733,7 @@ func (s *SQLiteStore) Recall(query string, limit int) ([]app.MemoryItem, error) 
 // FTS path is preferred when healthy; on FTS failure we transparently
 // downgrade to LIKE and disable useFTS for the rest of the process —
 // same resilience contract as Recall().
-func (s *SQLiteStore) RecallFiltered(opts app.RecallOptions) ([]app.MemoryItem, error) {
+func (s *SQLiteStore) RecallFiltered(opts model.RecallOptions) ([]model.MemoryItem, error) {
 	if s.useFTS {
 		items, err := s.recallFTSFiltered(opts)
 		if err == nil {
@@ -747,7 +748,7 @@ func (s *SQLiteStore) RecallFiltered(opts app.RecallOptions) ([]app.MemoryItem, 
 // by scope. Empty scope disables the scope filter. Ordering is
 // created_at DESC, falling back to id DESC for ties — matching the legacy
 // List() ordering so callers see consistent recency semantics.
-func (s *SQLiteStore) Context(n int, scope string) ([]app.MemoryItem, error) {
+func (s *SQLiteStore) Context(n int, scope string) ([]model.MemoryItem, error) {
 	scope = strings.TrimSpace(scope)
 	var (
 		rows *sql.Rows
@@ -781,7 +782,7 @@ func (s *SQLiteStore) Context(n int, scope string) ([]app.MemoryItem, error) {
 // ContextFiltered returns the most recent N rows with optional scope and
 // project_id filtering. When opts.AllProjects is true, the project filter
 // is bypassed (--all flag behavior).
-func (s *SQLiteStore) ContextFiltered(opts app.ContextOptions) ([]app.MemoryItem, error) {
+func (s *SQLiteStore) ContextFiltered(opts model.ContextOptions) ([]model.MemoryItem, error) {
 	clauses := []string{}
 	args := []any{}
 	scope := strings.TrimSpace(opts.Scope)
@@ -811,7 +812,7 @@ func (s *SQLiteStore) ContextFiltered(opts app.ContextOptions) ([]app.MemoryItem
 
 // ListFiltered returns up to limit rows in created_at DESC order, optionally
 // filtered by project_id. AllProjects bypasses the filter.
-func (s *SQLiteStore) ListFiltered(opts app.ListOptions) ([]app.MemoryItem, error) {
+func (s *SQLiteStore) ListFiltered(opts model.ListOptions) ([]model.MemoryItem, error) {
 	clauses := []string{}
 	args := []any{}
 	if opts.ProjectID > 0 && !opts.AllProjects {
@@ -847,7 +848,7 @@ func (s *SQLiteStore) UseFTS() bool {
 // rebuilt from the user query as a prefix-OR clause so casual keyword input
 // (e.g. "fts5 ranking") still matches without forcing callers to learn
 // FTS5 query syntax.
-func (s *SQLiteStore) recallFTS(query string, limit int) ([]app.MemoryItem, error) {
+func (s *SQLiteStore) recallFTS(query string, limit int) ([]model.MemoryItem, error) {
 	match := buildFTSMatch(query)
 	if match == "" {
 		// Nothing tokenizable — defer to LIKE so the caller still gets a
@@ -875,7 +876,7 @@ func (s *SQLiteStore) recallFTS(query string, limit int) ([]app.MemoryItem, erro
 // or returns an error. It preserves the legacy created_at-DESC ordering
 // because LIKE has no relevance signal — newest-first is the least
 // surprising default.
-func (s *SQLiteStore) recallLIKE(query string, limit int) ([]app.MemoryItem, error) {
+func (s *SQLiteStore) recallLIKE(query string, limit int) ([]model.MemoryItem, error) {
 	like := "%" + strings.ToLower(query) + "%"
 	rows, err := s.db.Query(
 		`SELECT `+selectColumns+`
@@ -897,7 +898,7 @@ func (s *SQLiteStore) recallLIKE(query string, limit int) ([]app.MemoryItem, err
 // applied as additional WHERE clauses against memory_items. The MATCH
 // stays inside memory_fts so bm25 ranking is preserved; type/since/until
 // are joined-table predicates.
-func (s *SQLiteStore) recallFTSFiltered(opts app.RecallOptions) ([]app.MemoryItem, error) {
+func (s *SQLiteStore) recallFTSFiltered(opts model.RecallOptions) ([]model.MemoryItem, error) {
 	match := buildFTSMatch(opts.Query)
 	if match == "" {
 		return s.recallLIKEFiltered(opts)
@@ -925,7 +926,7 @@ func (s *SQLiteStore) recallFTSFiltered(opts app.RecallOptions) ([]app.MemoryIte
 // recallLIKEFiltered is the resilient fallback for filter-aware recall.
 // Uses LOWER(content) LIKE plus the same metadata predicates. Order is
 // created_at DESC so newest-first matches the unfiltered LIKE path.
-func (s *SQLiteStore) recallLIKEFiltered(opts app.RecallOptions) ([]app.MemoryItem, error) {
+func (s *SQLiteStore) recallLIKEFiltered(opts model.RecallOptions) ([]model.MemoryItem, error) {
 	like := "%" + strings.ToLower(opts.Query) + "%"
 	clauses := []string{"LOWER(content) LIKE ?"}
 	args := []any{like}
@@ -949,7 +950,7 @@ func (s *SQLiteStore) recallLIKEFiltered(opts app.RecallOptions) ([]app.MemoryIt
 // given WHERE clause list. The column references are unqualified so callers
 // MUST ensure memory_items is the only table where those columns exist
 // in the surrounding query (true for both filtered recall paths).
-func appendMetadataFilters(clauses []string, args []any, opts app.RecallOptions) ([]string, []any) {
+func appendMetadataFilters(clauses []string, args []any, opts model.RecallOptions) ([]string, []any) {
 	if t := strings.TrimSpace(opts.Type); t != "" {
 		clauses = append(clauses, "COALESCE(type, '') = ?")
 		args = append(args, t)
@@ -986,7 +987,7 @@ func buildFTSMatch(query string) string {
 	return strings.Join(parts, " OR ")
 }
 
-func (s *SQLiteStore) List(limit int) ([]app.MemoryItem, error) {
+func (s *SQLiteStore) List(limit int) ([]model.MemoryItem, error) {
 	rows, err := s.db.Query(
 		`SELECT `+selectColumns+`
 		 FROM memory_items
@@ -1001,8 +1002,8 @@ func (s *SQLiteStore) List(limit int) ([]app.MemoryItem, error) {
 	return scanAll(rows)
 }
 
-func scanAll(rows *sql.Rows) ([]app.MemoryItem, error) {
-	var items []app.MemoryItem
+func scanAll(rows *sql.Rows) ([]model.MemoryItem, error) {
+	var items []model.MemoryItem
 	for rows.Next() {
 		it, err := scanRow(rows)
 		if err != nil {
@@ -1067,7 +1068,7 @@ func (s *SQLiteStore) appendSessionEvent(id, kind, summary string, at time.Time)
 // SessionEvents returns every lifecycle row tagged to id, ordered by id
 // ASC (insertion order). Empty result is not an error — callers see an
 // empty slice for unknown session ids.
-func (s *SQLiteStore) SessionEvents(id string) ([]app.SessionEvent, error) {
+func (s *SQLiteStore) SessionEvents(id string) ([]model.SessionEvent, error) {
 	clean := strings.TrimSpace(id)
 	if clean == "" {
 		return nil, errors.New("session id is empty")
@@ -1083,9 +1084,9 @@ func (s *SQLiteStore) SessionEvents(id string) ([]app.SessionEvent, error) {
 		return nil, err
 	}
 	defer rows.Close()
-	var out []app.SessionEvent
+	var out []model.SessionEvent
 	for rows.Next() {
-		var ev app.SessionEvent
+		var ev model.SessionEvent
 		var createdRaw string
 		if err := rows.Scan(&ev.SessionID, &ev.Kind, &ev.Summary, &createdRaw); err != nil {
 			return nil, err
@@ -1165,9 +1166,9 @@ func (s *SQLiteStore) RecordObservation(category, field, value string, confidenc
 	return id, nil
 }
 
-func (s *SQLiteStore) ListObservations(includeStatuses []string) ([]BehavioralObservation, error) {
+func (s *SQLiteStore) ListObservations(includeStatuses []string) ([]model.BehavioralObservation, error) {
 	if len(includeStatuses) == 0 {
-		return []BehavioralObservation{}, nil
+		return []model.BehavioralObservation{}, nil
 	}
 	placeholders := make([]string, 0, len(includeStatuses))
 	args := make([]any, 0, len(includeStatuses))
@@ -1184,7 +1185,7 @@ func (s *SQLiteStore) ListObservations(includeStatuses []string) ([]BehavioralOb
 		return nil, err
 	}
 	defer rows.Close()
-	var out []BehavioralObservation
+	var out []model.BehavioralObservation
 	for rows.Next() {
 		obs, err := scanBehavioralObservation(rows)
 		if err != nil {
@@ -1195,7 +1196,7 @@ func (s *SQLiteStore) ListObservations(includeStatuses []string) ([]BehavioralOb
 	return out, rows.Err()
 }
 
-func (s *SQLiteStore) GetObservation(id int64) (*BehavioralObservation, error) {
+func (s *SQLiteStore) GetObservation(id int64) (*model.BehavioralObservation, error) {
 	row := s.db.QueryRow(
 		`SELECT id, category, field, value, confidence, occurrence_count, status, last_seen, created_at
 		 FROM behavioral_observations WHERE id = ?`,
@@ -1216,13 +1217,13 @@ func (s *SQLiteStore) DismissObservation(id int64) error {
 	return err
 }
 
-func (s *SQLiteStore) Candidates() ([]BehavioralObservation, error) {
+func (s *SQLiteStore) Candidates() ([]model.BehavioralObservation, error) {
 	return s.ListObservations([]string{"candidate"})
 }
 
-func scanBehavioralObservation(scanner interface{ Scan(dest ...any) error }) (BehavioralObservation, error) {
+func scanBehavioralObservation(scanner interface{ Scan(dest ...any) error }) (model.BehavioralObservation, error) {
 	var (
-		obs                       BehavioralObservation
+		obs                       model.BehavioralObservation
 		lastSeenRaw, createdAtRaw string
 	)
 	if err := scanner.Scan(
@@ -1236,15 +1237,15 @@ func scanBehavioralObservation(scanner interface{ Scan(dest ...any) error }) (Be
 		&lastSeenRaw,
 		&createdAtRaw,
 	); err != nil {
-		return BehavioralObservation{}, err
+		return model.BehavioralObservation{}, err
 	}
 	lastSeen, err := time.Parse(time.RFC3339, lastSeenRaw)
 	if err != nil {
-		return BehavioralObservation{}, fmt.Errorf("invalid behavioral_observations.last_seen: %w", err)
+		return model.BehavioralObservation{}, fmt.Errorf("invalid behavioral_observations.last_seen: %w", err)
 	}
 	createdAt, err := time.Parse(time.RFC3339, createdAtRaw)
 	if err != nil {
-		return BehavioralObservation{}, fmt.Errorf("invalid behavioral_observations.created_at: %w", err)
+		return model.BehavioralObservation{}, fmt.Errorf("invalid behavioral_observations.created_at: %w", err)
 	}
 	obs.LastSeen = lastSeen
 	obs.CreatedAt = createdAt
@@ -1259,8 +1260,8 @@ func scanBehavioralObservation(scanner interface{ Scan(dest ...any) error }) (Be
 // The whole batch runs in a single transaction so a mid-batch failure
 // rolls back cleanly. CreatedAt for new rows is stamped with time.Now
 // at the store layer to avoid clock skew between caller and DB.
-func (s *SQLiteStore) ImportRecords(rows []app.ImportRecord) (app.ImportResult, error) {
-	res := app.ImportResult{}
+func (s *SQLiteStore) ImportRecords(rows []model.ImportRecord) (model.ImportResult, error) {
+	res := model.ImportResult{}
 	if len(rows) == 0 {
 		return res, nil
 	}
@@ -1451,9 +1452,9 @@ func reopenStore(s *SQLiteStore) error {
 	return nil
 }
 
-// DoctorReport is an alias for app.DoctorReport — the diagnostic
-// snapshot type lives in `app` so service callers don't need to import
-// `store`. Each axis maps 1:1 to a check the M3 doctor surface
+// DoctorReport is an alias for model.DoctorReport — the diagnostic
+// snapshot type lives in `model` as the shared domain contract. Each
+// axis maps 1:1 to a check the M3 doctor surface
 // advertises:
 //   - SchemaVersion: numeric migration target reached
 //   - FTSHealthy:    memory_fts table queryable + sync triggers present
@@ -1461,13 +1462,13 @@ func reopenStore(s *SQLiteStore) error {
 //   - MemoryItemsCount / SessionsCount: row counts for the M1+M3 tables
 //   - Summary: short human-readable line for CLI/MCP presentation,
 //     containing every axis name so callers can render a one-shot status
-type DoctorReport = app.DoctorReport
+type DoctorReport = model.DoctorReport
 
 // Doctor runs the full diagnostic suite and returns a DoctorReport. All
 // checks are read-only — Doctor MUST never mutate the database (callers
 // rely on this to run it from MCP without backup safeguards).
-func (s *SQLiteStore) Doctor() (app.DoctorReport, error) {
-	report := app.DoctorReport{}
+func (s *SQLiteStore) Doctor() (model.DoctorReport, error) {
+	report := model.DoctorReport{}
 
 	// 1. Schema version. Read from the schema_version table that Init
 	// stamps on every successful migration; max(version) is current.

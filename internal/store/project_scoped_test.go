@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // TestProjectScoped_RecallFiltered_DefaultsToActiveProject verifies that

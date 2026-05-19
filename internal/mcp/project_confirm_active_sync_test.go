@@ -3,7 +3,7 @@ package mcp
 import (
 	"testing"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // TestMCP_ProjectConfirm_SyncsActiveProjectID verifies project_confirm

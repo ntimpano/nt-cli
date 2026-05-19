@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // PR4a — Graph-Aware Recall (store layer)

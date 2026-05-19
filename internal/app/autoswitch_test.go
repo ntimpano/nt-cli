@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // autoswitchProjectStore is a test double that extends projectMemStore

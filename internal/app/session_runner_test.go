@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // sessionMemStore extends memStore so RunCLI can dispatch session commands

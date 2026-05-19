@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // TestParityGate_G1_RequiredToolSet proves spec scenario "Parity assertion

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // TestMCP_LocalList_ScopedByActiveProject verifies local_list follows active

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // doctorRunnerStore wires a fake DoctorStore into the runner, embedding

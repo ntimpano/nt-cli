@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // metaMemStore extends the existing memStore (defined in runner_test.go)

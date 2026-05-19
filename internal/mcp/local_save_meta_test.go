@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // metaMemStore extends memStore (defined in server_test.go) with

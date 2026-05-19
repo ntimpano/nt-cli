@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"flint/internal/model"
 )
 
 // Knowledge-Continuity Harness contract (spec capability:
@@ -16,49 +18,6 @@ import (
 // baseline.json. PR5 will replay it post-feature and assert
 // `delta_pct ≤ -35`. The harness is intentionally pure: callers
 // supply a Recaller and a Clock so tests are byte-deterministic.
-
-// ContinuityContractVersion stamps baseline.json so PR5 / runbook
-// readers can detect schema drift between releases. Bump when fields
-// or scoring rules change.
-const ContinuityContractVersion = "1.0.0"
-
-// ContinuityLatencyBudgetMs is the spec's recall p95 budget (ms).
-// At or below the budget the dimension keeps its full latency factor;
-// above it the factor decays linearly to a 0.5 floor at 2× budget.
-// This matches the spec's "preserves p95 < 50ms" SLO from PR4 design.
-const ContinuityLatencyBudgetMs = 50
-
-// ContinuityQuery is one fixture row: a query string and an
-// `expected_marker` substring that MUST appear in the top-3 returned
-// content for the row to count as a hit. Stable substring matching
-// keeps the fixture portable across different stores (no DB IDs).
-type ContinuityQuery struct {
-	Query          string `json:"query"`
-	ExpectedMarker string `json:"expected_marker"`
-	Note           string `json:"note,omitempty"`
-}
-
-// ContinuityQueryResult is one replayed row in the baseline.
-type ContinuityQueryResult struct {
-	Query          string `json:"query"`
-	ExpectedMarker string `json:"expected_marker"`
-	Hit            bool   `json:"hit"`
-	LatencyMs      int64  `json:"latency_ms"`
-	TopKContent    string `json:"top_k_content"` // first match, for debugging
-}
-
-// ContinuityBaseline is the full output written to baseline.json.
-// Field order is the JSON contract — do not reorder without bumping
-// ContinuityContractVersion.
-type ContinuityBaseline struct {
-	Version        string                  `json:"version"`
-	GeneratedAt    time.Time               `json:"generated_at"`
-	Count          int                     `json:"count"`
-	TopKHitRate    float64                 `json:"top_k_hit_rate"`
-	MedianResumeMs int64                   `json:"median_resume_ms"`
-	P95ResumeMs    int64                   `json:"p95_resume_ms"`
-	Queries        []ContinuityQueryResult `json:"queries"`
-}
 
 // Recaller is the minimal recall surface the harness needs. The app
 // Service satisfies it via a tiny adapter (string-only result), which
@@ -77,12 +36,12 @@ type Clock interface {
 // LoadQueries parses the JSON fixture suite at path. Errors surface
 // loudly because a missing fixture would silently zero the harness
 // and corrupt the scorecard's knowledge-continuity dimension.
-func LoadQueries(path string) ([]ContinuityQuery, error) {
+func LoadQueries(path string) ([]model.ContinuityQuery, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read fixture %s: %w", path, err)
 	}
-	var queries []ContinuityQuery
+	var queries []model.ContinuityQuery
 	if err := json.Unmarshal(data, &queries); err != nil {
 		return nil, fmt.Errorf("parse fixture %s: %w", path, err)
 	}
@@ -99,8 +58,8 @@ func LoadQueries(path string) ([]ContinuityQuery, error) {
 // strings contains the expected_marker (case-insensitive). Top-1
 // strict matching is too brittle for a fixture that must survive
 // store reseeding; "expected_marker in top-3" is the spec's intent.
-func ComputeContinuity(queries []ContinuityQuery, r Recaller, clk Clock) (ContinuityBaseline, error) {
-	results := make([]ContinuityQueryResult, 0, len(queries))
+func ComputeContinuity(queries []model.ContinuityQuery, r Recaller, clk Clock) (model.ContinuityBaseline, error) {
+	results := make([]model.ContinuityQueryResult, 0, len(queries))
 	latencies := make([]int64, 0, len(queries))
 	hits := 0
 
@@ -109,7 +68,7 @@ func ComputeContinuity(queries []ContinuityQuery, r Recaller, clk Clock) (Contin
 		got, err := r.Recall(q.Query, 3)
 		end := clk.Now()
 		if err != nil {
-			return ContinuityBaseline{}, fmt.Errorf("recall %q: %w", q.Query, err)
+			return model.ContinuityBaseline{}, fmt.Errorf("recall %q: %w", q.Query, err)
 		}
 		latencyMs := end.Sub(start).Milliseconds()
 		hit := containsMarker(got, q.ExpectedMarker)
@@ -120,7 +79,7 @@ func ComputeContinuity(queries []ContinuityQuery, r Recaller, clk Clock) (Contin
 		if len(got) > 0 {
 			topContent = got[0]
 		}
-		results = append(results, ContinuityQueryResult{
+		results = append(results, model.ContinuityQueryResult{
 			Query:          q.Query,
 			ExpectedMarker: q.ExpectedMarker,
 			Hit:            hit,
@@ -140,8 +99,8 @@ func ComputeContinuity(queries []ContinuityQuery, r Recaller, clk Clock) (Contin
 	// orders strictly after every measured query.
 	generatedAt := clk.Now()
 
-	return ContinuityBaseline{
-		Version:        ContinuityContractVersion,
+	return model.ContinuityBaseline{
+		Version:        model.ContinuityContractVersion,
 		GeneratedAt:    generatedAt.UTC(),
 		Count:          len(queries),
 		TopKHitRate:    hitRate,
@@ -215,17 +174,17 @@ func p95Ms(xs []int64) int64 {
 // with catastrophic latency is NOT continuity — operators feel the
 // stall — but we never zero the dimension on latency alone, because
 // a slow correct answer still beats a fast wrong one.
-func ScoreKnowledgeContinuity(b ContinuityBaseline) int {
+func ScoreKnowledgeContinuity(b model.ContinuityBaseline) int {
 	if b.TopKHitRate <= 0 {
 		return 0
 	}
 	hitScore := b.TopKHitRate * 100.0
 
 	factor := 1.0
-	if b.P95ResumeMs > ContinuityLatencyBudgetMs {
-		over := float64(b.P95ResumeMs - ContinuityLatencyBudgetMs)
+	if b.P95ResumeMs > model.ContinuityLatencyBudgetMs {
+		over := float64(b.P95ResumeMs - model.ContinuityLatencyBudgetMs)
 		// Decay: 0% over budget → 1.0; 100% over (2× budget) → 0.5.
-		decay := over / float64(ContinuityLatencyBudgetMs) // 1.0 at 2× budget
+		decay := over / float64(model.ContinuityLatencyBudgetMs) // 1.0 at 2× budget
 		if decay > 1.0 {
 			decay = 1.0
 		}

@@ -9,19 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"flint/internal/model"
 )
 
-type ProfileConfig struct {
-	Language          string `json:"language"`
-	Tone              string `json:"tone"`
-	Verbosity         string `json:"verbosity"`
-	AskBeforeMutation bool   `json:"ask_before_mutation"`
-	ContextAutoswitch bool   `json:"context_autoswitch"`
-	PrimaryDomain     string `json:"primary_domain,omitempty"`
-}
-
-func Defaults() ProfileConfig {
-	return ProfileConfig{
+func Defaults() model.ProfileConfig {
+	return model.ProfileConfig{
 		Language:          "es",
 		Tone:              "argentino",
 		Verbosity:         "short",
@@ -58,7 +51,7 @@ func isOneOf(value string, valid []string) bool {
 	return false
 }
 
-func (c ProfileConfig) Validate() error {
+func ValidateProfile(c model.ProfileConfig) error {
 	if !isOneOf(c.Language, validLanguages) {
 		return fmt.Errorf("invalid language %q (valid: %s)", c.Language, strings.Join(validLanguages, ", "))
 	}
@@ -82,7 +75,7 @@ func isInteractive() bool {
 	return (fi.Mode() & os.ModeCharDevice) != 0
 }
 
-func LoadProfile() ProfileConfig {
+func LoadProfile() model.ProfileConfig {
 	path, err := ProfilePath()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "warning: profile path: %v\n", err)
@@ -96,20 +89,20 @@ func LoadProfile() ProfileConfig {
 		fmt.Fprintf(os.Stderr, "warning: profile read failed: %v\n", err)
 		return Defaults()
 	}
-	var cfg ProfileConfig
+	var cfg model.ProfileConfig
 	if err := json.Unmarshal(body, &cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: profile parse failed: %v\n", err)
 		return Defaults()
 	}
-	if err := cfg.Validate(); err != nil {
+	if err := ValidateProfile(cfg); err != nil {
 		fmt.Fprintf(os.Stderr, "warning: profile validate failed: %v\n", err)
 		return Defaults()
 	}
 	return cfg
 }
 
-func (c ProfileConfig) Save() error {
-	if err := c.Validate(); err != nil {
+func SaveProfile(c model.ProfileConfig) error {
+	if err := ValidateProfile(c); err != nil {
 		return err
 	}
 	path, err := ProfilePath()
@@ -233,6 +226,12 @@ func runInitProfile(args []string, stdin io.Reader, stdout, stderr io.Writer, in
 				return 1
 			}
 			cfg.Verbosity = strings.TrimSpace(val)
+		case "primary-domain":
+			if !hasVal || strings.TrimSpace(val) == "" {
+				fmt.Fprintln(stderr, "invalid flag --primary-domain (expected --primary-domain=<value>)")
+				return 1
+			}
+			cfg.PrimaryDomain = strings.TrimSpace(val)
 		}
 	}
 
@@ -248,11 +247,11 @@ func runInitProfile(args []string, stdin io.Reader, stdout, stderr io.Writer, in
 	}
 
 	if !interactive || nonInteractive {
-		if err := cfg.Validate(); err != nil {
+		if err := ValidateProfile(cfg); err != nil {
 			fmt.Fprintln(stderr, err.Error())
 			return 1
 		}
-		if err := cfg.Save(); err != nil {
+		if err := SaveProfile(cfg); err != nil {
 			fmt.Fprintf(stderr, "profile save failed: %v\n", err)
 			return 1
 		}
@@ -293,11 +292,11 @@ func runInitProfile(args []string, stdin io.Reader, stdout, stderr io.Writer, in
 		cfg.ContextAutoswitch = v
 	}
 
-	if err := cfg.Validate(); err != nil {
+	if err := ValidateProfile(cfg); err != nil {
 		fmt.Fprintln(stderr, err.Error())
 		return 1
 	}
-	if err := cfg.Save(); err != nil {
+	if err := SaveProfile(cfg); err != nil {
 		fmt.Fprintf(stderr, "profile save failed: %v\n", err)
 		return 1
 	}

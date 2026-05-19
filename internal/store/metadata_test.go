@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // newMetaStore returns a fresh SQLiteStore with a t.TempDir backup directory

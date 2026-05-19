@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // doctorMemStoreMCP wraps memStore with DoctorStore so MCP can dispatch

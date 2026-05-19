@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"nt-cli/internal/app"
-	"nt-cli/internal/parity"
+	"flint/internal/app"
+	"flint/internal/model"
 )
 
 // callParityScorecardMCP invokes the MCP `parity_scorecard` tool with the
@@ -73,14 +73,14 @@ func TestParityScorecard_MCPSurface_ReturnsContract(t *testing.T) {
 		t.Fatalf("parity_scorecard with valid signals must not return isError, got text=%q", text)
 	}
 
-	var got parity.ScorecardVerdict
+	var got model.ScorecardVerdict
 	if err := json.Unmarshal([]byte(text), &got); err != nil {
-		t.Fatalf("MCP payload must be JSON-decodable into parity.ScorecardVerdict: %v\npayload=%q", err, text)
+		t.Fatalf("MCP payload must be JSON-decodable into model.ScorecardVerdict: %v\npayload=%q", err, text)
 	}
 	if got.Total != 100.0 {
 		t.Fatalf("expected total=100.0, got %.2f", got.Total)
 	}
-	if got.Verdict != parity.VerdictPass {
+	if got.Verdict != model.VerdictPass {
 		t.Fatalf("expected verdict=pass, got %q", got.Verdict)
 	}
 	if len(got.Dimensions) != 7 {
@@ -108,11 +108,11 @@ func TestParityScorecard_MCPSurface_HoldOnSoak(t *testing.T) {
 	if isError {
 		t.Fatalf("parity_scorecard hold path must not be reported as MCP error: %q", text)
 	}
-	var got parity.ScorecardVerdict
+	var got model.ScorecardVerdict
 	if err := json.Unmarshal([]byte(text), &got); err != nil {
 		t.Fatalf("decode payload: %v", err)
 	}
-	if got.Verdict != parity.VerdictHold {
+	if got.Verdict != model.VerdictHold {
 		t.Fatalf("soak<14 must produce verdict=hold, got %q", got.Verdict)
 	}
 	if got.HoldReason != "soak_window" {
@@ -154,11 +154,11 @@ func TestParityScorecard_CLISurface_ReturnsJSON(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("parity scorecard with green signals must exit 0, got %d (stderr=%q)", code, stderr.String())
 	}
-	var got parity.ScorecardVerdict
+	var got model.ScorecardVerdict
 	if err := json.Unmarshal(stdout.Bytes(), &got); err != nil {
-		t.Fatalf("CLI stdout must be JSON-decodable into parity.ScorecardVerdict: %v\nstdout=%q", err, stdout.String())
+		t.Fatalf("CLI stdout must be JSON-decodable into model.ScorecardVerdict: %v\nstdout=%q", err, stdout.String())
 	}
-	if got.Verdict != parity.VerdictPass {
+	if got.Verdict != model.VerdictPass {
 		t.Fatalf("expected verdict=pass, got %q (total=%.2f)", got.Verdict, got.Total)
 	}
 }

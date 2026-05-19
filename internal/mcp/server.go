@@ -12,9 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"nt-cli/internal/app"
-	"nt-cli/internal/parity"
-	"nt-cli/internal/store"
+	"flint/internal/app"
+	"flint/internal/model"
+	"flint/internal/parity"
+	"flint/internal/store"
 )
 
 type Server struct {
@@ -139,7 +140,7 @@ type projectSwitchArgs struct {
 	ID int64 `json:"id"`
 }
 
-// parityScorecardArgs maps the JSON-RPC tool input to a parity.ScorecardSignals
+// parityScorecardArgs maps the JSON-RPC tool input to a model.ScorecardSignals
 // value. JSON keys use snake_case to match nt-cli's MCP convention.
 // localRelateArgs and graphNeighborsArgs are the input shapes for the
 // PR3c memory-graph tools. They are advertised and dispatched only when
@@ -177,12 +178,12 @@ func actionableRecallEnabled() bool {
 // enum. Unknown / empty values default to outbound because forward
 // links are the most common navigation case and forcing callers to
 // always spell it would be noise.
-func parseRelationDirection(raw string) app.RelationDirection {
+func parseRelationDirection(raw string) model.RelationDirection {
 	switch strings.ToLower(strings.TrimSpace(raw)) {
 	case "inbound":
-		return app.RelationDirectionInbound
+		return model.RelationDirectionInbound
 	default:
-		return app.RelationDirectionOutbound
+		return model.RelationDirectionOutbound
 	}
 }
 
@@ -208,8 +209,8 @@ func decodeArgs[T any](raw json.RawMessage) (T, error) {
 	return out, nil
 }
 
-func (a parityScorecardArgs) toSignals() parity.ScorecardSignals {
-	return parity.ScorecardSignals{
+func (a parityScorecardArgs) toSignals() model.ScorecardSignals {
+	return model.ScorecardSignals{
 		CoreOps:                a.CoreOps,
 		MetadataRetrieval:      a.MetadataRetrieval,
 		SessionWorkflow:        a.SessionWorkflow,
@@ -450,7 +451,7 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 				saveErr error
 			)
 			if hasMeta {
-				id, saveErr = svc.SaveWithMeta(app.SaveRequest{
+				id, saveErr = svc.SaveWithMeta(model.SaveRequest{
 					Content:  args.Content,
 					Title:    args.Title,
 					Type:     args.Type,
@@ -479,11 +480,11 @@ func handleRequest(payload []byte, svc *app.Service) (response, bool) {
 			// OFF and no opts, behavior is byte-identical to PR2b.
 			useOpts := hasFilter || graphFeatureEnabled() || args.IncludeSuperseded || actionableRecallEnabled()
 			var (
-				items []app.MemoryItem
+				items []model.MemoryItem
 				err   error
 			)
 			if useOpts {
-				opts := app.RecallOptions{
+				opts := model.RecallOptions{
 					Query:             args.Query,
 					Type:              args.Type,
 					Limit:             args.Limit,
@@ -1274,7 +1275,7 @@ func toolsListResult() map[string]interface{} {
 
 // memoryItemPayload renders a MemoryItem as a JSON-serialisable map with
 // UTC ISO-8601 timestamps, used by both CLI and MCP surfaces.
-func memoryItemPayload(it app.MemoryItem) map[string]interface{} {
+func memoryItemPayload(it model.MemoryItem) map[string]interface{} {
 	return map[string]interface{}{
 		"id":         it.ID,
 		"content":    it.Content,
@@ -1287,7 +1288,7 @@ func memoryItemPayload(it app.MemoryItem) map[string]interface{} {
 // with metadata fields (title/type/topic_key/scope) included so MCP
 // callers using the M2 filter and context surfaces can read structured
 // fields without parsing Go's default capital-cased struct keys.
-func memoryItemsPayload(items []app.MemoryItem) []map[string]interface{} {
+func memoryItemsPayload(items []model.MemoryItem) []map[string]interface{} {
 	out := make([]map[string]interface{}, 0, len(items))
 	for _, it := range items {
 		row := memoryItemPayload(it)
@@ -1326,7 +1327,7 @@ func actionableRecallPayload(resp app.ActionableRecallResponse) map[string]inter
 // memoryRelationsPayload renders []MemoryRelation as JSON-friendly maps// with snake_case keys so MCP clients can consume the rows without
 // dealing with Go's default capital-cased struct tags. Mirrors
 // memoryItemsPayload so the surface stays consistent across tools.
-func memoryRelationsPayload(rels []app.MemoryRelation) []map[string]interface{} {
+func memoryRelationsPayload(rels []model.MemoryRelation) []map[string]interface{} {
 	out := make([]map[string]interface{}, 0, len(rels))
 	for _, r := range rels {
 		out = append(out, map[string]interface{}{
@@ -1361,7 +1362,7 @@ func parseDateArg(raw string) (time.Time, error) {
 // project_current, project_list, and project_switch responses.
 // The activeID parameter marks which project is currently active (active=true).
 // Pass 0 to omit the active flag (e.g. for project_current where it's implicit).
-func projectPayload(p app.Project) map[string]interface{} {
+func projectPayload(p model.Project) map[string]interface{} {
 	return map[string]interface{}{
 		"id":        p.ID,
 		"name":      p.Name,
@@ -1371,7 +1372,7 @@ func projectPayload(p app.Project) map[string]interface{} {
 
 // projectPayloadWithActive renders an app.Project with the active flag set
 // based on whether p.ID == activeID. Used by project_list.
-func projectPayloadWithActive(p app.Project, activeID int64) map[string]interface{} {
+func projectPayloadWithActive(p model.Project, activeID int64) map[string]interface{} {
 	m := projectPayload(p)
 	m["active"] = p.ID == activeID
 	return m

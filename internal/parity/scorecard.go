@@ -5,6 +5,8 @@ import (
 	"math"
 	"sort"
 	"strings"
+
+	"flint/internal/model"
 )
 
 // Parity scorecard contract for the nt-cli rollout (spec capability:
@@ -14,64 +16,6 @@ import (
 // CLI/MCP consumers can detect drift between releases. Weights MUST sum
 // to 100 and are embedded in code (not config) by deliberate design:
 // parity thresholds must be immovable and strictly enforced.
-
-// ScorecardContractVersion stamps the verdict payload so CLI/MCP clients
-// can pin a contract version. Bump this when dimension weights, critical
-// floors, or pass conditions change.
-const ScorecardContractVersion = "1.0.0"
-
-// MinSoakDays is the minimum 14-day soak window required for verdict=pass.
-const MinSoakDays = 14
-
-// MinTotalToPass is the minimum weighted total required for verdict=pass.
-const MinTotalToPass = 95.0
-
-// DimensionPassThreshold is the per-dimension threshold for pass=true.
-// Below it, the dimension is flagged red and (if critical) overrides the
-// overall verdict.
-const DimensionPassThreshold = 95
-
-// Verdict is the overall scorecard outcome.
-type Verdict string
-
-const (
-	VerdictPass Verdict = "pass"
-	VerdictHold Verdict = "hold"
-	VerdictFail Verdict = "fail"
-)
-
-// ScorecardSignals carries the raw 0..100 dimension scores collected
-// from the live system plus the soak counter. It is a pure value type —
-// the scorecard math has zero side effects.
-type ScorecardSignals struct {
-	CoreOps                int
-	MetadataRetrieval      int
-	SessionWorkflow        int
-	ImportExportBackup     int
-	ReliabilityOperability int
-	KnowledgeContinuity    int
-	UXAPIContract          int
-	SoakDays               int
-}
-
-// ScorecardDimension is one row of the scorecard verdict, exposing the
-// raw score, weight, and pass flag the spec requires.
-type ScorecardDimension struct {
-	Name   string `json:"name"`
-	Score  int    `json:"score"`
-	Weight int    `json:"weight"`
-	Pass   bool   `json:"pass"`
-}
-
-// ScorecardVerdict is the full scorecard result returned to callers.
-// It is shaped to match the JSON contract used by CLI/MCP surfaces.
-type ScorecardVerdict struct {
-	Total      float64              `json:"total"`
-	Dimensions []ScorecardDimension `json:"dimensions"`
-	Version    string               `json:"version"`
-	Verdict    Verdict              `json:"verdict"`
-	HoldReason string               `json:"hold_reason"`
-}
 
 // dimensionDef carries the static metadata for one scorecard dimension.
 // criticalDims is the subset whose pass=false MUST force overall fail.
@@ -97,7 +41,7 @@ var scorecardDimensions = []dimensionDef{
 // scoreFor returns the raw 0..100 score for a given dimension name from
 // the supplied signals. Centralising the lookup keeps ComputeScorecard
 // scannable and avoids a parallel switch each time we iterate dimensions.
-func scoreFor(name string, s ScorecardSignals) int {
+func scoreFor(name string, s model.ScorecardSignals) int {
 	switch name {
 	case "core-ops":
 		return s.CoreOps
@@ -132,17 +76,17 @@ func scoreFor(name string, s ScorecardSignals) int {
 //     so operators know where to focus remediation.
 //
 // The function is pure: same input → same output, no side effects.
-func ComputeScorecard(s ScorecardSignals) ScorecardVerdict {
-	dims := make([]ScorecardDimension, 0, len(scorecardDimensions))
+func ComputeScorecard(s model.ScorecardSignals) model.ScorecardVerdict {
+	dims := make([]model.ScorecardDimension, 0, len(scorecardDimensions))
 	weightedSum := 0
 	weightSum := 0
 	for _, def := range scorecardDimensions {
 		score := scoreFor(def.name, s)
-		dims = append(dims, ScorecardDimension{
+		dims = append(dims, model.ScorecardDimension{
 			Name:   def.name,
 			Score:  score,
 			Weight: def.weight,
-			Pass:   score >= DimensionPassThreshold,
+			Pass:   score >= model.DimensionPassThreshold,
 		})
 		weightedSum += score * def.weight
 		weightSum += def.weight
@@ -154,10 +98,10 @@ func ComputeScorecard(s ScorecardSignals) ScorecardVerdict {
 	total = math.Round(total*10) / 10 // round to 0.1 per spec
 
 	verdict, hold := classifyVerdict(total, dims, s.SoakDays)
-	return ScorecardVerdict{
+	return model.ScorecardVerdict{
 		Total:      total,
 		Dimensions: dims,
-		Version:    ScorecardContractVersion,
+		Version:    model.ScorecardContractVersion,
 		Verdict:    verdict,
 		HoldReason: hold,
 	}
@@ -166,9 +110,9 @@ func ComputeScorecard(s ScorecardSignals) ScorecardVerdict {
 // classifyVerdict applies the pass/hold/fail rules over the computed
 // dimensions. It is split out so the math in ComputeScorecard stays
 // linear and the verdict logic is unit-testable independently.
-func classifyVerdict(total float64, dims []ScorecardDimension, soakDays int) (Verdict, string) {
-	failedCriticals := []ScorecardDimension{}
-	criticals := []ScorecardDimension{}
+func classifyVerdict(total float64, dims []model.ScorecardDimension, soakDays int) (model.Verdict, string) {
+	failedCriticals := []model.ScorecardDimension{}
+	criticals := []model.ScorecardDimension{}
 	for _, d := range dims {
 		if !isCritical(d.Name) {
 			continue
@@ -186,21 +130,21 @@ func classifyVerdict(total float64, dims []ScorecardDimension, soakDays int) (Ve
 			names = append(names, d.Name)
 		}
 		sort.Strings(names)
-		return VerdictFail, fmt.Sprintf("critical_red: %s", strings.Join(names, ","))
+		return model.VerdictFail, fmt.Sprintf("critical_red: %s", strings.Join(names, ","))
 	}
 
 	// Soak window holds verdict regardless of total/criticals.
-	if soakDays < MinSoakDays {
-		return VerdictHold, "soak_window"
+	if soakDays < model.MinSoakDays {
+		return model.VerdictHold, "soak_window"
 	}
 
 	// Low total holds; name the lowest critical so operators target it.
-	if total < MinTotalToPass {
+	if total < model.MinTotalToPass {
 		lowest := lowestCritical(criticals)
-		return VerdictHold, fmt.Sprintf("total_below_threshold: lowest critical=%s score=%d", lowest.Name, lowest.Score)
+		return model.VerdictHold, fmt.Sprintf("total_below_threshold: lowest critical=%s score=%d", lowest.Name, lowest.Score)
 	}
 
-	return VerdictPass, ""
+	return model.VerdictPass, ""
 }
 
 // isCritical reports whether the named dimension is in the critical set.
@@ -217,9 +161,9 @@ func isCritical(name string) bool {
 
 // lowestCritical returns the lowest-scoring critical dimension. Ties are
 // broken by name (alphabetical) for deterministic hold reasons.
-func lowestCritical(criticals []ScorecardDimension) ScorecardDimension {
+func lowestCritical(criticals []model.ScorecardDimension) model.ScorecardDimension {
 	if len(criticals) == 0 {
-		return ScorecardDimension{}
+		return model.ScorecardDimension{}
 	}
 	lowest := criticals[0]
 	for _, d := range criticals[1:] {

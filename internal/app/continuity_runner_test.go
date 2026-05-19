@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
-	"nt-cli/internal/parity"
+	"flint/internal/app"
+	"flint/internal/model"
 )
 
 // seedContinuityStore populates a memStore with content matching the
@@ -66,12 +66,12 @@ func TestRunContinuityHarness_WritesBaselineJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read baseline: %v", err)
 	}
-	var parsed parity.ContinuityBaseline
+	var parsed model.ContinuityBaseline
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		t.Fatalf("parse baseline: %v", err)
 	}
-	if parsed.Version != parity.ContinuityContractVersion {
-		t.Errorf("Version: want %q, got %q", parity.ContinuityContractVersion, parsed.Version)
+	if parsed.Version != model.ContinuityContractVersion {
+		t.Errorf("Version: want %q, got %q", model.ContinuityContractVersion, parsed.Version)
 	}
 	if parsed.Count != baseline.Count {
 		t.Errorf("Count round-trip: want %d, got %d", baseline.Count, parsed.Count)
@@ -174,7 +174,7 @@ func TestRunCLI_ParityContinuity(t *testing.T) {
 		t.Fatalf("exit: want 0, got %d (stderr=%q)", code, stderr)
 	}
 	// stdout must be a valid baseline JSON.
-	var parsed parity.ContinuityBaseline
+	var parsed model.ContinuityBaseline
 	if err := json.Unmarshal([]byte(strings.TrimSpace(stdout)), &parsed); err != nil {
 		t.Fatalf("stdout is not baseline JSON: %v\nstdout=%q", err, stdout)
 	}

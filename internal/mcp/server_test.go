@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // memStore is a minimal in-memory Store used to drive Service in MCP tests.

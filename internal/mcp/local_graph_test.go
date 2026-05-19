@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // graphMemStore extends memStore with RelationStore so MCP tests can

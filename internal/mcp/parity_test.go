@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // parityCase describes a single behavioural scenario that the spec requires

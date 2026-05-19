@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // seedTwo writes two memory rows and returns their ids in insertion order.

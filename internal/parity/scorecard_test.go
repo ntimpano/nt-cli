@@ -3,6 +3,8 @@ package parity
 import (
 	"strings"
 	"testing"
+
+	"flint/internal/model"
 )
 
 // TestParityScorecard_WeightedSumMath proves spec scenario "Score produced
@@ -13,7 +15,7 @@ import (
 // hardcoded "return 100" or "return 95" implementation cannot pass.
 func TestParityScorecard_WeightedSumMath(t *testing.T) {
 	// All-100 signals → total MUST be exactly 100.0.
-	allGreen := ScorecardSignals{
+	allGreen := model.ScorecardSignals{
 		CoreOps:                100,
 		MetadataRetrieval:      100,
 		SessionWorkflow:        100,
@@ -33,7 +35,7 @@ func TestParityScorecard_WeightedSumMath(t *testing.T) {
 	// Scores: 80,90,70,100,60,50,40
 	// Weighted: 80*25+90*15+70*10+100*15+60*15+50*10+40*10
 	//         = 2000+1350+700+1500+900+500+400 = 7350 → /100 = 73.5
-	mixed := ScorecardSignals{
+	mixed := model.ScorecardSignals{
 		CoreOps:                80,
 		MetadataRetrieval:      90,
 		SessionWorkflow:        70,
@@ -53,7 +55,7 @@ func TestParityScorecard_WeightedSumMath(t *testing.T) {
 // "Each dimension MUST expose its raw score and pass/fail flag."
 // The verdict result MUST list all 7 dimensions with name, score, weight, pass.
 func TestParityScorecard_DimensionsExposed(t *testing.T) {
-	v := ComputeScorecard(ScorecardSignals{
+	v := ComputeScorecard(model.ScorecardSignals{
 		CoreOps:                100,
 		MetadataRetrieval:      100,
 		SessionWorkflow:        100,
@@ -96,13 +98,13 @@ func TestParityScorecard_DimensionsExposed(t *testing.T) {
 // "Pass MUST require ≥95 AND critical green AND soak_days ≥ 14".
 // Triangulation: only the all-green-with-soak case yields pass.
 func TestParityScorecard_PassRequiresAllConditions(t *testing.T) {
-	pass := ComputeScorecard(ScorecardSignals{
+	pass := ComputeScorecard(model.ScorecardSignals{
 		CoreOps: 98, MetadataRetrieval: 96, SessionWorkflow: 95,
 		ImportExportBackup: 97, ReliabilityOperability: 96,
 		KnowledgeContinuity: 95, UXAPIContract: 95,
 		SoakDays: 14,
 	})
-	if pass.Verdict != VerdictPass {
+	if pass.Verdict != model.VerdictPass {
 		t.Fatalf("expected verdict=pass for total≥95+critical-green+soak=14, got %q (total=%.2f)", pass.Verdict, pass.Total)
 	}
 	if pass.HoldReason != "" {
@@ -116,7 +118,7 @@ func TestParityScorecard_PassRequiresAllConditions(t *testing.T) {
 // (pass=false), verdict MUST be fail.
 func TestParityScorecard_CriticalRedForcesFail(t *testing.T) {
 	// core-ops red, everything else green → total still ≥ 95.
-	v := ComputeScorecard(ScorecardSignals{
+	v := ComputeScorecard(model.ScorecardSignals{
 		CoreOps:                80, // critical red (below 95)
 		MetadataRetrieval:      100,
 		SessionWorkflow:        100,
@@ -129,7 +131,7 @@ func TestParityScorecard_CriticalRedForcesFail(t *testing.T) {
 	if v.Total < 95 {
 		t.Fatalf("test setup error: total must remain ≥95 to prove critical-red overrides total, got %.2f", v.Total)
 	}
-	if v.Verdict != VerdictFail {
+	if v.Verdict != model.VerdictFail {
 		t.Fatalf("critical red MUST force verdict=fail despite total≥95, got %q (total=%.2f)", v.Verdict, v.Total)
 	}
 	if !strings.Contains(v.HoldReason, "core-ops") {
@@ -141,13 +143,13 @@ func TestParityScorecard_CriticalRedForcesFail(t *testing.T) {
 // holds verdict": total=97, critical green, soak_days=10 → verdict=hold with
 // reason `soak_window`.
 func TestParityScorecard_SoakUnder14Holds(t *testing.T) {
-	v := ComputeScorecard(ScorecardSignals{
+	v := ComputeScorecard(model.ScorecardSignals{
 		CoreOps: 97, MetadataRetrieval: 97, SessionWorkflow: 97,
 		ImportExportBackup: 97, ReliabilityOperability: 97,
 		KnowledgeContinuity: 97, UXAPIContract: 97,
 		SoakDays: 10,
 	})
-	if v.Verdict != VerdictHold {
+	if v.Verdict != model.VerdictHold {
 		t.Fatalf("soak<14 with otherwise-green signals MUST produce verdict=hold, got %q", v.Verdict)
 	}
 	if v.HoldReason != "soak_window" {
@@ -164,7 +166,7 @@ func TestParityScorecard_SoakUnder14Holds(t *testing.T) {
 // critical dimensions, knowledge-continuity has the lowest score → the
 // hold reason MUST name it.
 func TestParityScorecard_HoldNamesLowestCriticalDimension(t *testing.T) {
-	v := ComputeScorecard(ScorecardSignals{
+	v := ComputeScorecard(model.ScorecardSignals{
 		CoreOps:                99, // critical, green
 		MetadataRetrieval:      50, // non-critical drag
 		SessionWorkflow:        50,
@@ -174,10 +176,10 @@ func TestParityScorecard_HoldNamesLowestCriticalDimension(t *testing.T) {
 		UXAPIContract:          50,
 		SoakDays:               30,
 	})
-	if v.Verdict == VerdictPass {
+	if v.Verdict == model.VerdictPass {
 		t.Fatalf("test setup expected non-pass verdict (total<95), got pass total=%.2f", v.Total)
 	}
-	if v.Verdict != VerdictHold {
+	if v.Verdict != model.VerdictHold {
 		t.Fatalf("expected verdict=hold (total<95, critical green), got %q", v.Verdict)
 	}
 	if !strings.Contains(v.HoldReason, "knowledge-continuity") {
@@ -189,7 +191,7 @@ func TestParityScorecard_HoldNamesLowestCriticalDimension(t *testing.T) {
 // version string so contract changes are detectable. The MCP/CLI surface
 // (task 1.4) returns this field; locking it here prevents accidental drift.
 func TestParityScorecard_VersionStamp(t *testing.T) {
-	v := ComputeScorecard(ScorecardSignals{SoakDays: 14})
+	v := ComputeScorecard(model.ScorecardSignals{SoakDays: 14})
 	if strings.TrimSpace(v.Version) == "" {
 		t.Fatalf("verdict.Version must be a non-empty contract version, got %q", v.Version)
 	}

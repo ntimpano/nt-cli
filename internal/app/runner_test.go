@@ -3,11 +3,13 @@ package app_test
 import (
 	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // memStore is an in-memory Store used to drive the CLI runner under test
@@ -398,6 +400,123 @@ func TestRunCLI_NoArgsPrintsUsageAndExitsNonZero(t *testing.T) {
 	}
 	if !strings.Contains(stdout, "nt-cli commands") && !strings.Contains(stdout, "save") {
 		t.Fatalf("expected usage on stdout, got %q", stdout)
+	}
+}
+
+func TestRunCLI_InitUsesProfileFallbackFlag(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	store := newMemStore()
+	svc := app.NewService(store)
+	var stdout, stderr bytes.Buffer
+	code := app.RunCLIWithStdin(svc, []string{"init", "--profile", "--non-interactive", "--primary-domain=research"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected init --profile success, code=%d stderr=%q", code, stderr.String())
+	}
+	got := app.LoadProfile()
+	if got.PrimaryDomain != "research" {
+		t.Fatalf("expected profile fallback runner to set primary domain, got %+v", got)
+	}
+	if !strings.Contains(stdout.String(), "wrote") {
+		t.Fatalf("expected profile write message, got %q", stdout.String())
+	}
+}
+
+func TestRunCLI_InitUsesLegacyFallbackFlag(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	store := newMemStore()
+	svc := app.NewService(store)
+	var stdout, stderr bytes.Buffer
+	code := app.RunCLIWithStdin(svc, []string{"init", "--legacy", "--non-interactive", "--primary-domain=strategy"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected init --legacy success, code=%d stderr=%q", code, stderr.String())
+	}
+	got := app.LoadProfile()
+	if got.PrimaryDomain != "strategy" {
+		t.Fatalf("expected legacy fallback runner to set primary domain, got %+v", got)
+	}
+}
+
+func TestRunCLI_InitDefaultRoutesToRunInit(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".config", "opencode"), 0o755); err != nil {
+		t.Fatalf("mkdir opencode dir: %v", err)
+	}
+
+	store := newMemStore()
+	svc := app.NewService(store)
+	var stdout, stderr bytes.Buffer
+	code := app.RunCLIWithStdin(svc, []string{"init", "--non-interactive", "--force"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected default init success, code=%d stderr=%q", code, stderr.String())
+	}
+
+	runtimePath := filepath.Join(home, ".nt-cli", "config.json")
+	if _, err := os.Stat(runtimePath); err != nil {
+		t.Fatalf("expected RunInit default path to write runtime config: %v", err)
+	}
+}
+
+func TestRunInitOrProfile_DefaultRoutesToRunInit(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	if err := os.MkdirAll(filepath.Join(home, ".config", "opencode"), 0o755); err != nil {
+		t.Fatalf("mkdir opencode dir: %v", err)
+	}
+
+	var stdout, stderr bytes.Buffer
+	code := app.RunInitOrProfile([]string{"--non-interactive", "--force"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected default init success, code=%d stderr=%q", code, stderr.String())
+	}
+
+	runtimePath := filepath.Join(home, ".nt-cli", "config.json")
+	if _, err := os.Stat(runtimePath); err != nil {
+		t.Fatalf("expected RunInit path to write runtime config: %v", err)
+	}
+}
+
+func TestRunInitOrProfile_LegacyFlagRoutesToRunInitProfile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	var stdout, stderr bytes.Buffer
+	code := app.RunInitOrProfile([]string{"--legacy", "--non-interactive", "--primary-domain=strategy"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected legacy profile init success, code=%d stderr=%q", code, stderr.String())
+	}
+
+	got := app.LoadProfile()
+	if got.PrimaryDomain != "strategy" {
+		t.Fatalf("expected legacy fallback to set primary domain, got %+v", got)
+	}
+	runtimePath := filepath.Join(home, ".nt-cli", "config.json")
+	if _, err := os.Stat(runtimePath); err == nil {
+		t.Fatalf("expected legacy profile route to avoid runtime config write")
+	}
+}
+
+func TestRunInitOrProfile_ProfileFlagRoutesToRunInitProfile(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	var stdout, stderr bytes.Buffer
+	code := app.RunInitOrProfile([]string{"init", "--profile", "--non-interactive", "--primary-domain=research"}, strings.NewReader(""), &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("expected profile fallback success, code=%d stderr=%q", code, stderr.String())
+	}
+
+	got := app.LoadProfile()
+	if got.PrimaryDomain != "research" {
+		t.Fatalf("expected profile fallback to set primary domain, got %+v", got)
+	}
+	runtimePath := filepath.Join(home, ".nt-cli", "config.json")
+	if _, err := os.Stat(runtimePath); err == nil {
+		t.Fatalf("expected profile route to avoid runtime config write")
 	}
 }
 

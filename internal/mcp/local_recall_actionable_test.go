@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // withActionableFlag toggles NTCLI_FF_ACTIONABLE for the test and

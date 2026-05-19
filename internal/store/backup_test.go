@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"nt-cli/internal/app"
-	"nt-cli/internal/store"
+	"flint/internal/app"
+	"flint/internal/store"
 )
 
 // TestBackup_RestoreRoundTrip proves the M3 spec scenario "portable

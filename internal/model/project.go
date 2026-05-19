@@ -1,4 +1,4 @@
-package app
+package model
 
 import "time"
 
@@ -18,4 +18,15 @@ type ProjectInput struct {
 	Name        string
 	RootPath    string
 	Fingerprint string
+}
+
+// ProbeResult is the read-only proposal returned by Probe. It never mutates
+// state — callers invoke Confirm or Switch explicitly to change the active
+// project.
+type ProbeResult struct {
+	Status     string    // "known" | "new" | "ambiguous" | "none"
+	Candidate  string    // project name (existing or proposed)
+	Candidates []Project // non-nil only when Status=="ambiguous"
+	Confidence string    // "high" | "low"
+	Reason     string
 }

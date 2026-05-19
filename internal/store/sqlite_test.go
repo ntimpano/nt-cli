@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 func TestInit_MigrationV5ToV6_BehavioralTableExists(t *testing.T) {

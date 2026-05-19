@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // TestImportStore_DedupeIsolatedAcrossProjects verifies dedupe isolation by

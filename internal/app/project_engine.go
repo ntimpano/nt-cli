@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+
+	"flint/internal/model"
 )
 
 // ErrNoActiveProject is returned by ProjectStore.GetActive when no active
@@ -14,21 +16,10 @@ import (
 // guards the path for stubbed environments).
 var ErrNoActiveProject = errors.New("no active project")
 
-// ProbeResult is the read-only proposal returned by Probe. It never mutates
-// state — callers invoke Confirm or Switch explicitly to change the active
-// project.
-type ProbeResult struct {
-	Status     string    // "known" | "new" | "ambiguous" | "none"
-	Candidate  string    // project name (existing or proposed)
-	Candidates []Project // non-nil only when Status=="ambiguous"
-	Confidence string    // "high" | "low"
-	Reason     string
-}
-
 // FingerprintLookup is the subset of the project store needed by ProbeWithResolver.
 // Kept narrow so unit tests only need to stub one method.
 type FingerprintLookup interface {
-	FindByFingerprint(fp string) (*Project, error)
+	FindByFingerprint(fp string) (*model.Project, error)
 }
 
 // RootPathLookup is an optional extension of FingerprintLookup. When a store
@@ -36,25 +27,25 @@ type FingerprintLookup interface {
 // "ambiguous" case: cwd is inside multiple registered project root_paths and
 // there is no stable git fingerprint to distinguish them.
 type RootPathLookup interface {
-	FindByRootPath(cwd string) ([]Project, error)
+	FindByRootPath(cwd string) ([]model.Project, error)
 }
 
 // ProjectStore is the full interface the engine needs to read/write projects.
 type ProjectStore interface {
 	FingerprintLookup
-	ListProjects() ([]Project, error)
-	GetActive() (Project, error)
+	ListProjects() ([]model.Project, error)
+	GetActive() (model.Project, error)
 	SetActive(id int64) error
-	CreateProject(in ProjectInput) (Project, error)
+	CreateProject(in model.ProjectInput) (model.Project, error)
 }
 
 // ProjectEngine is the application-layer interface for project context
 // management. All state-mutating operations are explicit — no silent switches.
 type ProjectEngine interface {
-	Probe(cwd string) (ProbeResult, error)
+	Probe(cwd string) (model.ProbeResult, error)
 	Confirm(candidate string) error
-	List() ([]Project, error)
-	Current() (Project, error)
+	List() ([]model.Project, error)
+	Current() (model.Project, error)
 	Switch(projectID int64) error
 }
 
@@ -71,7 +62,7 @@ func newProjectEngine(store ProjectStore, resolver gitInfoResolver) *projectEngi
 }
 
 // Probe inspects cwd and returns a ProbeResult without mutating state.
-func (e *projectEngineImpl) Probe(cwd string) (ProbeResult, error) {
+func (e *projectEngineImpl) Probe(cwd string) (model.ProbeResult, error) {
 	return ProbeWithResolver(cwd, e.store, e.resolver)
 }
 
@@ -92,7 +83,7 @@ func (e *projectEngineImpl) Confirm(candidate string) error {
 			return e.store.SetActive(p.ID)
 		}
 	}
-	created, err := e.store.CreateProject(ProjectInput{Name: clean})
+	created, err := e.store.CreateProject(model.ProjectInput{Name: clean})
 	if err != nil {
 		return fmt.Errorf("confirm: create project %q: %w", clean, err)
 	}
@@ -103,12 +94,12 @@ func (e *projectEngineImpl) Confirm(candidate string) error {
 }
 
 // List returns all projects from the store.
-func (e *projectEngineImpl) List() ([]Project, error) {
+func (e *projectEngineImpl) List() ([]model.Project, error) {
 	return e.store.ListProjects()
 }
 
 // Current returns the active project.
-func (e *projectEngineImpl) Current() (Project, error) {
+func (e *projectEngineImpl) Current() (model.Project, error) {
 	return e.store.GetActive()
 }
 
@@ -141,18 +132,18 @@ func ComputeFingerprint(gitRoot, remoteURL string) string {
 
 // ProbeWithResolver runs the probe logic with an injected git resolver,
 // making it deterministic in tests (no real git calls).
-func ProbeWithResolver(cwd string, lookup FingerprintLookup, resolver gitInfoResolver) (ProbeResult, error) {
+func ProbeWithResolver(cwd string, lookup FingerprintLookup, resolver gitInfoResolver) (model.ProbeResult, error) {
 	gitRoot, remoteURL := resolver(cwd)
 	if gitRoot == "" {
 		// No git root: fall back to root_path prefix matching for ambiguous/known detection.
 		if rpl, ok := lookup.(RootPathLookup); ok {
 			matches, err := rpl.FindByRootPath(cwd)
 			if err != nil {
-				return ProbeResult{}, fmt.Errorf("probe: root path lookup: %w", err)
+				return model.ProbeResult{}, fmt.Errorf("probe: root path lookup: %w", err)
 			}
 			switch len(matches) {
 			case 1:
-				return ProbeResult{
+				return model.ProbeResult{
 					Status:     "known",
 					Candidate:  matches[0].Name,
 					Confidence: "low",
@@ -160,7 +151,7 @@ func ProbeWithResolver(cwd string, lookup FingerprintLookup, resolver gitInfoRes
 				}, nil
 			default:
 				if len(matches) > 1 {
-					return ProbeResult{
+					return model.ProbeResult{
 						Status:     "ambiguous",
 						Candidates: matches,
 						Confidence: "low",
@@ -169,7 +160,7 @@ func ProbeWithResolver(cwd string, lookup FingerprintLookup, resolver gitInfoRes
 				}
 			}
 		}
-		return ProbeResult{
+		return model.ProbeResult{
 			Status:     "none",
 			Confidence: "low",
 			Reason:     "not inside a git repository",
@@ -179,12 +170,12 @@ func ProbeWithResolver(cwd string, lookup FingerprintLookup, resolver gitInfoRes
 	fp := ComputeFingerprint(gitRoot, remoteURL)
 	existing, err := lookup.FindByFingerprint(fp)
 	if err != nil {
-		return ProbeResult{}, fmt.Errorf("probe: lookup fingerprint: %w", err)
+		return model.ProbeResult{}, fmt.Errorf("probe: lookup fingerprint: %w", err)
 	}
 
 	name := proposeName(remoteURL, gitRoot)
 	if existing != nil {
-		return ProbeResult{
+		return model.ProbeResult{
 			Status:     "known",
 			Candidate:  existing.Name,
 			Confidence: "high",
@@ -192,7 +183,7 @@ func ProbeWithResolver(cwd string, lookup FingerprintLookup, resolver gitInfoRes
 		}, nil
 	}
 
-	return ProbeResult{
+	return model.ProbeResult{
 		Status:     "new",
 		Candidate:  name,
 		Confidence: "high",

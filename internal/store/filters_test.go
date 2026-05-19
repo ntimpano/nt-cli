@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // TestRecallFiltered_TypeNarrowsResults covers spec scenario

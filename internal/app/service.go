@@ -8,15 +8,16 @@ import (
 	"strings"
 	"time"
 
-	"nt-cli/internal/parity"
+	"flint/internal/model"
+	"flint/internal/parity"
 )
 
 type Store interface {
 	Init() error
 	Save(content string, createdAt time.Time) (int64, error)
-	Recall(query string, limit int) ([]MemoryItem, error)
-	List(limit int) ([]MemoryItem, error)
-	Get(id int64) (MemoryItem, error)
+	Recall(query string, limit int) ([]model.MemoryItem, error)
+	List(limit int) ([]model.MemoryItem, error)
+	Get(id int64) (model.MemoryItem, error)
 	Update(id int64, content string, updatedAt time.Time) (bool, error)
 	Delete(id int64) (bool, error)
 	Close() error
@@ -30,7 +31,7 @@ type Store interface {
 // don't implement it degrade to the plain Recall path so the FF stays
 // safe to flip in mixed environments.
 type GraphRecallStore interface {
-	RecallGraphAware(opts RecallOptions) ([]MemoryItem, error)
+	RecallGraphAware(opts model.RecallOptions) ([]model.MemoryItem, error)
 }
 
 // graphRecallEnabled reports whether the PR4 graph-aware recall path
@@ -45,17 +46,7 @@ func graphRecallEnabled() bool {
 // interface; callers MUST type-assert and degrade gracefully when the backing
 // store does not support metadata (e.g. lightweight in-memory test fakes).
 type MetadataStore interface {
-	SaveWithMeta(req SaveRequest) (int64, error)
-}
-
-// SessionEvent is a single row in the session-lifecycle log. Kind is one
-// of "start", "summary", "end". Summary is non-empty only for "summary"
-// rows. CreatedAt is UTC.
-type SessionEvent struct {
-	SessionID string
-	Kind      string
-	Summary   string
-	CreatedAt time.Time
+	SaveWithMeta(req model.SaveRequest) (int64, error)
 }
 
 // SessionStore extends Store with the lifecycle log introduced by M3.
@@ -66,59 +57,25 @@ type SessionStore interface {
 	SessionStart(id string, at time.Time) error
 	SessionSummary(id, summary string, at time.Time) error
 	SessionEnd(id string, at time.Time) error
-	SessionEvents(id string) ([]SessionEvent, error)
+	SessionEvents(id string) ([]model.SessionEvent, error)
 	ActiveSessionID() (string, error)
-}
-
-// BehavioralObservation is a persisted candidate extracted from
-// `[BEHAVIORAL_OBSERVATION: ...]` markers.
-type BehavioralObservation struct {
-	ID              int64
-	Category        string
-	Field           string
-	Value           string
-	Confidence      int
-	OccurrenceCount int
-	Status          string
-	LastSeen        time.Time
-	CreatedAt       time.Time
 }
 
 // BehavioralStore extends Store with behavioral-learning operations.
 // Optional capability; service methods type-assert defensively.
 type BehavioralStore interface {
 	RecordObservation(category, field, value string, confidence int, now time.Time) (int64, error)
-	ListObservations(includeStatuses []string) ([]BehavioralObservation, error)
-	GetObservation(id int64) (*BehavioralObservation, error)
+	ListObservations(includeStatuses []string) ([]model.BehavioralObservation, error)
+	GetObservation(id int64) (*model.BehavioralObservation, error)
 	DismissObservation(id int64) error
-	Candidates() ([]BehavioralObservation, error)
-}
-
-// ImportRecord is a single row queued for the M3 import bridge. Empty
-// metadata fields default to type=manual / scope=project at the store
-// layer (mirrors SaveWithMeta behaviour). CreatedAt zero = stamp now.
-type ImportRecord struct {
-	Content  string
-	Title    string
-	Type     string
-	TopicKey string
-	Scope    string
-}
-
-// ImportResult is the count summary returned by ImportRecords. Inserted +
-// Skipped MUST equal len(input). Skipped covers both dedupe hits and
-// validation drops (empty content) so callers can render a single
-// "no-op" status from a single field.
-type ImportResult struct {
-	Inserted int
-	Skipped  int
+	Candidates() ([]model.BehavioralObservation, error)
 }
 
 // ImportStore extends Store with the idempotent import path introduced
 // by M3. Dedupe key is `(topic_key, sha256(content))`. Same defensive
 // type-assert pattern as the other M3 capability interfaces.
 type ImportStore interface {
-	ImportRecords(rows []ImportRecord) (ImportResult, error)
+	ImportRecords(rows []model.ImportRecord) (model.ImportResult, error)
 }
 
 // BackupStore extends Store with portable snapshot + restore for the
@@ -130,32 +87,6 @@ type ImportStore interface {
 type BackupStore interface {
 	Backup(dst string) error
 	Restore(src string) error
-}
-
-// DoctorReport mirrors the store-layer diagnostic snapshot. Re-declared
-// at the service layer (instead of re-exporting the store type) so the
-// `app` package stays independent of `store` — keeping the same
-// dependency direction the rest of the package follows.
-type DoctorReport struct {
-	SchemaVersion     int
-	FTSHealthy        bool
-	IntegrityOK       bool
-	IntegrityMessages []string
-	MemoryItemsCount  int
-	SessionsCount     int
-	Summary           string
-
-	// AutopilotSessionCloseRate is the rolling fraction (∈ [0,1]) of
-	// sessions in the active window that closed cleanly (both a
-	// `summary` row and an `end` row). Spec capability:
-	// workflow-autopilot — "Doctor surfaces autopilot rate".
-	// Pairs with AutopilotThreshold for the doctor surface.
-	AutopilotSessionCloseRate float64
-	// AutopilotThreshold is the spec floor (0.9 = 90% of sessions
-	// must close cleanly over the rolling window). Surfaced verbatim
-	// so doctor JSON consumers can compute pass/fail without hard-
-	// coding the constant on their side.
-	AutopilotThreshold float64
 }
 
 // AutopilotSessionCloseThreshold is the spec-defined floor for the
@@ -170,7 +101,7 @@ const AutopilotSessionCloseThreshold = 0.9
 // This is the pure helper that the doctor surface uses to populate
 // DoctorReport.AutopilotSessionCloseRate. Keeping it pure means tests
 // don't need a live store and the formula is auditable from one place.
-func ComputeAutopilotSessionCloseRate(events []SessionEvent) float64 {
+func ComputeAutopilotSessionCloseRate(events []model.SessionEvent) float64 {
 	if len(events) == 0 {
 		return 0
 	}
@@ -210,7 +141,7 @@ func ComputeAutopilotSessionCloseRate(events []SessionEvent) float64 {
 // MUST be read-only — callers (CLI, MCP) rely on this guarantee to run
 // it without backup safeguards.
 type DoctorStore interface {
-	Doctor() (DoctorReport, error)
+	Doctor() (model.DoctorReport, error)
 }
 
 // FilterStore extends Store with the structured read paths introduced by
@@ -220,79 +151,12 @@ type DoctorStore interface {
 // filter-aware callers receive unfiltered rows and corrupt downstream
 // invariants.
 type FilterStore interface {
-	RecallFiltered(opts RecallOptions) ([]MemoryItem, error)
-	Context(n int, scope string) ([]MemoryItem, error)
+	RecallFiltered(opts model.RecallOptions) ([]model.MemoryItem, error)
+	Context(n int, scope string) ([]model.MemoryItem, error)
 	// ContextFiltered is the project-scoped extension of Context (PR2b).
-	ContextFiltered(opts ContextOptions) ([]MemoryItem, error)
+	ContextFiltered(opts model.ContextOptions) ([]model.MemoryItem, error)
 	// ListFiltered is the project-scoped extension of List (PR2b).
-	ListFiltered(opts ListOptions) ([]MemoryItem, error)
-}
-
-// ContextOptions carries parameters for the Context surface when
-// project-scoped filtering is required.
-type ContextOptions struct {
-	N           int
-	Scope       string
-	ProjectID   int64 // 0 = no filter; >0 = filter by project_id
-	AllProjects bool  // true = bypass ProjectID filter
-}
-
-// ListOptions carries parameters for the List surface when project-scoped
-// filtering is required.
-type ListOptions struct {
-	Limit       int
-	ProjectID   int64 // 0 = no filter; >0 = filter by project_id
-	AllProjects bool  // true = bypass ProjectID filter
-}
-
-// RecallOptions carries the optional filter dimensions accepted by the
-// M2 recall surface. Zero-value fields are treated as "unbounded":
-//   - Query: required, non-empty after trim (validated by Service).
-//   - Type:  empty string = no type filter.
-//   - Since/Until: zero time = no lower/upper bound on created_at.
-//   - Limit: ≤0 defaults to 10 at the service layer.
-//   - ProjectID: 0 = no project filter; >0 = only rows for that project.
-//   - AllProjects: true = bypass ProjectID filter (cross-project read).
-type RecallOptions struct {
-	Query string
-	Type  string
-	Since time.Time
-	Until time.Time
-	Limit int
-
-	// ProjectID scopes the recall to a specific project. 0 = no filter.
-	ProjectID int64
-	// AllProjects bypasses the ProjectID filter when true.
-	AllProjects bool
-
-	// IncludeSuperseded opts back into rows that have been superseded
-	// by another row (predecessors of a `supersedes` edge). When false
-	// (default) RecallGraphAware suppresses them so the surface only
-	// shows current revisions. The plain Recall / RecallFiltered paths
-	// ignore this field — supersedes-aware filtering is exclusive to
-	// the graph-aware path.
-	IncludeSuperseded bool
-
-	// GraphAware requests the graph-aware ranking path. Wired by the
-	// service layer based on the NTCLI_FF_GRAPH feature flag — the
-	// store reads it directly so legacy fakes that don't implement
-	// graph capability never see this option engaged.
-	GraphAware bool
-}
-
-// SaveRequest carries the optional metadata fields accepted by the M1 save
-// surface. CreatedAt MUST be set by the caller; the service is responsible
-// for stamping the current UTC time when invoked through the public API.
-type SaveRequest struct {
-	Content   string
-	Title     string
-	Type      string
-	TopicKey  string
-	Scope     string
-	CreatedAt time.Time
-	// ProjectID stamps the active project on the saved row.
-	// 0 means "no project" (legacy rows); >0 scopes the row.
-	ProjectID int64
+	ListFiltered(opts model.ListOptions) ([]model.MemoryItem, error)
 }
 
 // ErrNotFound is the stable sentinel returned when a note id does not exist.
@@ -317,19 +181,6 @@ func (s *Service) SetActiveProject(id int64) {
 // ActiveProjectID returns the currently active project id (0 = unscoped).
 func (s *Service) ActiveProjectID() int64 {
 	return s.activeProjectID
-}
-
-type MemoryItem struct {
-	ID        int64
-	Content   string
-	CreatedAt time.Time
-	UpdatedAt time.Time
-	// M1 metadata fields. Empty string is the documented "unset" marker so
-	// the schema additions stay backward-compatible with existing callers.
-	Title    string
-	Type     string
-	TopicKey string
-	Scope    string
 }
 
 func NewService(repo Store) *Service {
@@ -357,7 +208,7 @@ func (s *Service) Save(content string) (int64, error) {
 	// This satisfies the spec requirement: "default Save path scoped by active project".
 	if s.activeProjectID > 0 {
 		if meta, ok := s.repo.(MetadataStore); ok {
-			return meta.SaveWithMeta(SaveRequest{
+			return meta.SaveWithMeta(model.SaveRequest{
 				Content:   clean,
 				Type:      "manual",
 				Scope:     "project",
@@ -378,7 +229,7 @@ func (s *Service) Save(content string) (int64, error) {
 // fast rather than silently dropping metadata: silent drops would let
 // downstream consumers see partially-populated rows and corrupt the
 // upsert-by-topic invariant.
-func (s *Service) SaveWithMeta(req SaveRequest) (int64, error) {
+func (s *Service) SaveWithMeta(req model.SaveRequest) (int64, error) {
 	clean := strings.TrimSpace(req.Content)
 	if clean == "" {
 		return 0, errors.New("content is empty")
@@ -405,7 +256,7 @@ func (s *Service) SaveWithMeta(req SaveRequest) (int64, error) {
 	return meta.SaveWithMeta(req)
 }
 
-func (s *Service) Recall(query string, limit int) ([]MemoryItem, error) {
+func (s *Service) Recall(query string, limit int) ([]model.MemoryItem, error) {
 	clean := strings.TrimSpace(query)
 	if clean == "" {
 		return nil, errors.New("query is empty")
@@ -418,7 +269,7 @@ func (s *Service) Recall(query string, limit int) ([]MemoryItem, error) {
 	// "default Recall path scoped by active project".
 	if s.activeProjectID > 0 {
 		if _, ok := s.repo.(FilterStore); ok {
-			return s.RecallWithOptions(RecallOptions{Query: clean, Limit: limit})
+			return s.RecallWithOptions(model.RecallOptions{Query: clean, Limit: limit})
 		}
 	}
 	// PR4: when NTCLI_FF_GRAPH=1 AND the store supports graph-aware
@@ -427,7 +278,7 @@ func (s *Service) Recall(query string, limit int) ([]MemoryItem, error) {
 	// silent fall-through to plain Recall (legacy fakes still work).
 	if graphRecallEnabled() {
 		if gs, ok := s.repo.(GraphRecallStore); ok {
-			return gs.RecallGraphAware(RecallOptions{
+			return gs.RecallGraphAware(model.RecallOptions{
 				Query:      clean,
 				Limit:      limit,
 				GraphAware: true,
@@ -445,7 +296,7 @@ func (s *Service) Recall(query string, limit int) ([]MemoryItem, error) {
 // fails fast with an explicit error rather than degrading to plain
 // Recall — silent degradation would let filter-aware callers see
 // unfiltered rows.
-func (s *Service) RecallWithOptions(opts RecallOptions) ([]MemoryItem, error) {
+func (s *Service) RecallWithOptions(opts model.RecallOptions) ([]model.MemoryItem, error) {
 	clean := strings.TrimSpace(opts.Query)
 	if clean == "" {
 		return nil, errors.New("query is empty")
@@ -480,14 +331,14 @@ func (s *Service) RecallWithOptions(opts RecallOptions) ([]MemoryItem, error) {
 // scoped to a single Scope value. n ≤0 defaults to 10. Scope is
 // trimmed; empty string disables the scope filter. Same defensive
 // FilterStore type-assert as RecallWithOptions.
-func (s *Service) Context(n int, scope string) ([]MemoryItem, error) {
+func (s *Service) Context(n int, scope string) ([]model.MemoryItem, error) {
 	return s.ContextOpts(n, scope, false)
 }
 
 // ContextOpts is the full version of Context that exposes the AllProjects
 // bypass flag. When allProjects is true, the active project filter is skipped
 // so callers can read across all project contexts.
-func (s *Service) ContextOpts(n int, scope string, allProjects bool) ([]MemoryItem, error) {
+func (s *Service) ContextOpts(n int, scope string, allProjects bool) ([]model.MemoryItem, error) {
 	filt, ok := s.repo.(FilterStore)
 	if !ok {
 		return nil, errors.New("store does not support context operations")
@@ -496,7 +347,7 @@ func (s *Service) ContextOpts(n int, scope string, allProjects bool) ([]MemoryIt
 		n = 10
 	}
 	scope = strings.TrimSpace(scope)
-	return filt.ContextFiltered(ContextOptions{
+	return filt.ContextFiltered(model.ContextOptions{
 		N:           n,
 		Scope:       scope,
 		ProjectID:   s.activeProjectID,
@@ -504,20 +355,20 @@ func (s *Service) ContextOpts(n int, scope string, allProjects bool) ([]MemoryIt
 	})
 }
 
-func (s *Service) List(limit int) ([]MemoryItem, error) {
+func (s *Service) List(limit int) ([]model.MemoryItem, error) {
 	return s.ListOpts(limit, false)
 }
 
 // ListOpts is the full list surface with optional all-project bypass.
 // When an active project is set and the store supports FilterStore, list is
 // scoped to that project by default. allProjects=true bypasses the scope.
-func (s *Service) ListOpts(limit int, allProjects bool) ([]MemoryItem, error) {
+func (s *Service) ListOpts(limit int, allProjects bool) ([]model.MemoryItem, error) {
 	if limit <= 0 {
 		limit = 10
 	}
 	if s.activeProjectID > 0 {
 		if filt, ok := s.repo.(FilterStore); ok {
-			return filt.ListFiltered(ListOptions{
+			return filt.ListFiltered(model.ListOptions{
 				Limit:       limit,
 				ProjectID:   s.activeProjectID,
 				AllProjects: allProjects,
@@ -527,9 +378,9 @@ func (s *Service) ListOpts(limit int, allProjects bool) ([]MemoryItem, error) {
 	return s.repo.List(limit)
 }
 
-func (s *Service) Get(id int64) (MemoryItem, error) {
+func (s *Service) Get(id int64) (model.MemoryItem, error) {
 	if id <= 0 {
-		return MemoryItem{}, errors.New("id must be positive")
+		return model.MemoryItem{}, errors.New("id must be positive")
 	}
 	return s.repo.Get(id)
 }
@@ -638,7 +489,7 @@ func (s *Service) SessionSummary(id, summary string) error {
 
 // SessionEvents returns every lifecycle row tagged to id, in insertion
 // order. Validation mirrors the write paths.
-func (s *Service) SessionEvents(id string) ([]SessionEvent, error) {
+func (s *Service) SessionEvents(id string) ([]model.SessionEvent, error) {
 	clean, err := s.validateSessionID(id)
 	if err != nil {
 		return nil, err
@@ -708,17 +559,17 @@ type importJSONRecord struct {
 // malformed files still surface valid rows. The store does its own
 // dedupe by `(topic_key, sha256(content))` — this method only handles
 // parsing + dry-run accounting.
-func (s *Service) ImportJSON(data []byte, dryRun bool) (ImportResult, error) {
+func (s *Service) ImportJSON(data []byte, dryRun bool) (model.ImportResult, error) {
 	var records []importJSONRecord
 	if err := json.Unmarshal(data, &records); err != nil {
-		return ImportResult{}, err
+		return model.ImportResult{}, err
 	}
-	rows := make([]ImportRecord, 0, len(records))
+	rows := make([]model.ImportRecord, 0, len(records))
 	for _, r := range records {
 		if strings.TrimSpace(r.Content) == "" {
 			continue
 		}
-		rows = append(rows, ImportRecord{
+		rows = append(rows, model.ImportRecord{
 			Content:  r.Content,
 			Title:    r.Title,
 			Type:     r.Type,
@@ -732,11 +583,11 @@ func (s *Service) ImportJSON(data []byte, dryRun bool) (ImportResult, error) {
 		// but we can't peek at the store without writing — that's the
 		// honest contract per spec scenario "Dry-run reports without
 		// writing".
-		return ImportResult{Inserted: len(rows)}, nil
+		return model.ImportResult{Inserted: len(rows)}, nil
 	}
 	imp, ok := s.repo.(ImportStore)
 	if !ok {
-		return ImportResult{}, errors.New("store does not support import operations")
+		return model.ImportResult{}, errors.New("store does not support import operations")
 	}
 	return imp.ImportRecords(rows)
 }
@@ -789,10 +640,10 @@ func (s *Service) Restore(src string) error {
 // Doctor returns the read-only diagnostic snapshot from the underlying
 // store. Returns a capability error if the Store doesn't implement
 // DoctorStore (defensive type-assert mirrors session/import/backup).
-func (s *Service) Doctor() (DoctorReport, error) {
+func (s *Service) Doctor() (model.DoctorReport, error) {
 	ds, ok := s.repo.(DoctorStore)
 	if !ok {
-		return DoctorReport{}, errors.New("store does not support doctor diagnostics")
+		return model.DoctorReport{}, errors.New("store does not support doctor diagnostics")
 	}
 	return ds.Doctor()
 }
@@ -833,24 +684,24 @@ func (r *recallAdapter) Recall(query string, limit int) ([]string, error) {
 // the surface consumed by `nt-cli parity continuity` and by PR5's
 // post-feature replay step (which compares against this baseline to
 // assert delta_pct ≤ -35).
-func (s *Service) RunContinuityHarness(fixturePath, outPath string) (parity.ContinuityBaseline, error) {
+func (s *Service) RunContinuityHarness(fixturePath, outPath string) (model.ContinuityBaseline, error) {
 	queries, err := parity.LoadQueries(fixturePath)
 	if err != nil {
-		return parity.ContinuityBaseline{}, err
+		return model.ContinuityBaseline{}, err
 	}
 	baseline, err := parity.ComputeContinuity(queries, &recallAdapter{svc: s}, systemClock{})
 	if err != nil {
-		return parity.ContinuityBaseline{}, err
+		return model.ContinuityBaseline{}, err
 	}
 	// Indent the file output so runbook reviewers can diff baselines
 	// across releases without a separate jq step.
 	body, err := json.MarshalIndent(baseline, "", "  ")
 	if err != nil {
-		return parity.ContinuityBaseline{}, err
+		return model.ContinuityBaseline{}, err
 	}
 	if outPath != "" {
 		if err := os.WriteFile(outPath, body, 0o644); err != nil {
-			return parity.ContinuityBaseline{}, err
+			return model.ContinuityBaseline{}, err
 		}
 	}
 	return baseline, nil

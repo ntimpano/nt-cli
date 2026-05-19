@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"nt-cli/internal/app"
-	"nt-cli/internal/store"
+	"flint/internal/app"
+	"flint/internal/store"
 )
 
 // ---------------------------------------------------------------------------

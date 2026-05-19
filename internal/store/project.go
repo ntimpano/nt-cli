@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/model"
 )
 
 // ErrProjectNotFound is returned by SetActive when the target project id
@@ -18,7 +18,7 @@ var ErrProjectNotFound = errors.New("project not found")
 //
 // Uniqueness is enforced at the schema level on `name` — duplicate names
 // surface the underlying SQLite constraint error to the caller.
-func (s *SQLiteStore) CreateProject(in app.ProjectInput) (app.Project, error) {
+func (s *SQLiteStore) CreateProject(in model.ProjectInput) (model.Project, error) {
 	now := time.Now().UTC()
 	stamp := now.Format(time.RFC3339)
 	res, err := s.db.Exec(
@@ -27,13 +27,13 @@ func (s *SQLiteStore) CreateProject(in app.ProjectInput) (app.Project, error) {
 		in.Name, in.RootPath, in.Fingerprint, stamp,
 	)
 	if err != nil {
-		return app.Project{}, fmt.Errorf("insert project: %w", err)
+		return model.Project{}, fmt.Errorf("insert project: %w", err)
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
-		return app.Project{}, err
+		return model.Project{}, err
 	}
-	return app.Project{
+	return model.Project{
 		ID:          id,
 		Name:        in.Name,
 		RootPath:    in.RootPath,
@@ -46,8 +46,8 @@ func (s *SQLiteStore) CreateProject(in app.ProjectInput) (app.Project, error) {
 // active_project singleton. The v5 migration guarantees this row exists
 // (it is seeded to "default" during Init) so callers can rely on a
 // non-zero result on a healthy DB.
-func (s *SQLiteStore) GetActive() (app.Project, error) {
-	var p app.Project
+func (s *SQLiteStore) GetActive() (model.Project, error) {
+	var p model.Project
 	var createdRaw string
 	err := s.db.QueryRow(
 		`SELECT p.id, p.name, p.root_path, p.fingerprint, p.created_at
@@ -56,7 +56,7 @@ func (s *SQLiteStore) GetActive() (app.Project, error) {
 		 WHERE ap.id = 1`,
 	).Scan(&p.ID, &p.Name, &p.RootPath, &p.Fingerprint, &createdRaw)
 	if err != nil {
-		return app.Project{}, fmt.Errorf("read active project: %w", err)
+		return model.Project{}, fmt.Errorf("read active project: %w", err)
 	}
 	if t, perr := time.Parse(time.RFC3339, createdRaw); perr == nil {
 		p.CreatedAt = t
@@ -90,7 +90,7 @@ func (s *SQLiteStore) SetActive(projectID int64) error {
 
 // ListProjects returns all projects ordered by id ASC for deterministic
 // iteration. The default project (id stamped at v5 migration) sorts first.
-func (s *SQLiteStore) ListProjects() ([]app.Project, error) {
+func (s *SQLiteStore) ListProjects() ([]model.Project, error) {
 	rows, err := s.db.Query(
 		`SELECT id, name, root_path, fingerprint, created_at
 		 FROM projects ORDER BY id ASC`,
@@ -99,9 +99,9 @@ func (s *SQLiteStore) ListProjects() ([]app.Project, error) {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
 	defer rows.Close()
-	var out []app.Project
+	var out []model.Project
 	for rows.Next() {
-		var p app.Project
+		var p model.Project
 		var createdRaw string
 		if err := rows.Scan(&p.ID, &p.Name, &p.RootPath, &p.Fingerprint, &createdRaw); err != nil {
 			return nil, err
@@ -118,7 +118,7 @@ func (s *SQLiteStore) ListProjects() ([]app.Project, error) {
 // to) cwd. This allows the probe engine to detect the "ambiguous" case where
 // the working directory could belong to more than one registered project.
 // An empty cwd returns an empty slice (no match).
-func (s *SQLiteStore) FindByRootPath(cwd string) ([]app.Project, error) {
+func (s *SQLiteStore) FindByRootPath(cwd string) ([]model.Project, error) {
 	if cwd == "" {
 		return nil, nil
 	}
@@ -138,9 +138,9 @@ func (s *SQLiteStore) FindByRootPath(cwd string) ([]app.Project, error) {
 		return nil, fmt.Errorf("find by root path: %w", err)
 	}
 	defer rows.Close()
-	var out []app.Project
+	var out []model.Project
 	for rows.Next() {
-		var p app.Project
+		var p model.Project
 		var createdRaw string
 		if err := rows.Scan(&p.ID, &p.Name, &p.RootPath, &p.Fingerprint, &createdRaw); err != nil {
 			return nil, err
@@ -156,11 +156,11 @@ func (s *SQLiteStore) FindByRootPath(cwd string) ([]app.Project, error) {
 // FindByFingerprint returns the project whose fingerprint matches, or nil
 // if no such project exists. An empty fingerprint is treated as "no match"
 // to avoid colliding with the default project's empty fingerprint.
-func (s *SQLiteStore) FindByFingerprint(fp string) (*app.Project, error) {
+func (s *SQLiteStore) FindByFingerprint(fp string) (*model.Project, error) {
 	if fp == "" {
 		return nil, nil
 	}
-	var p app.Project
+	var p model.Project
 	var createdRaw string
 	err := s.db.QueryRow(
 		`SELECT id, name, root_path, fingerprint, created_at

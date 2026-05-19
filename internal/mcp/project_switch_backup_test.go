@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 func TestMCP_ProjectSwitch_PreSwitchBackup_UsesUniqueNames(t *testing.T) {

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 // TestSessions_FullLifecycle covers spec scenario:

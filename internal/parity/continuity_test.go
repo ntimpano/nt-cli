@@ -5,6 +5,8 @@ import (
 	"math"
 	"testing"
 	"time"
+
+	"flint/internal/model"
 )
 
 // fakeClock returns timestamps from a pre-seeded sequence so replay
@@ -68,7 +70,7 @@ func TestLoadQueries_FixtureSuiteHasMinimumRows(t *testing.T) {
 // happy path: every fixture row's expected_marker appears in the
 // top-3 returned by the (faked) recaller, so hit_rate = 1.0.
 func TestComputeContinuity_HitRateMatchesExpectedMarkers(t *testing.T) {
-	queries := []ContinuityQuery{
+	queries := []model.ContinuityQuery{
 		{Query: "auth", ExpectedMarker: "JWT"},
 		{Query: "fts", ExpectedMarker: "FTS5"},
 	}
@@ -102,7 +104,7 @@ func TestComputeContinuity_HitRateMatchesExpectedMarkers(t *testing.T) {
 // hit_rate must be the proper fraction (1/2 = 0.5). This is the
 // triangulation case that breaks any "always 1.0" Fake It.
 func TestComputeContinuity_PartialMissReducesHitRate(t *testing.T) {
-	queries := []ContinuityQuery{
+	queries := []model.ContinuityQuery{
 		{Query: "auth", ExpectedMarker: "JWT"},
 		{Query: "fts", ExpectedMarker: "FTS5"},
 	}
@@ -131,7 +133,7 @@ func TestComputeContinuity_PartialMissReducesHitRate(t *testing.T) {
 // TestComputeContinuity_DeterministicReplayIsIdempotent — the spec's
 // hard invariant. Same input → byte-identical baseline.json.
 func TestComputeContinuity_DeterministicReplayIsIdempotent(t *testing.T) {
-	queries := []ContinuityQuery{
+	queries := []model.ContinuityQuery{
 		{Query: "auth", ExpectedMarker: "JWT"},
 		{Query: "fts", ExpectedMarker: "FTS5"},
 	}
@@ -165,7 +167,7 @@ func TestComputeContinuity_DeterministicReplayIsIdempotent(t *testing.T) {
 // the maximum observed sample (the bounded-error invariant — p95 must
 // be a real measurement from the latency series, not a stub).
 func TestComputeContinuity_P95Bounded(t *testing.T) {
-	queries := []ContinuityQuery{
+	queries := []model.ContinuityQuery{
 		{Query: "q1", ExpectedMarker: "x"},
 		{Query: "q2", ExpectedMarker: "x"},
 		{Query: "q3", ExpectedMarker: "x"},
@@ -206,15 +208,15 @@ func TestComputeContinuity_P95Bounded(t *testing.T) {
 // TestComputeContinuity_VersionStamped makes the contract version
 // part of the baseline so PR5 can detect drift across replays.
 func TestComputeContinuity_VersionStamped(t *testing.T) {
-	queries := []ContinuityQuery{{Query: "q", ExpectedMarker: "x"}}
+	queries := []model.ContinuityQuery{{Query: "q", ExpectedMarker: "x"}}
 	recaller := &fakeRecaller{hits: map[string][]string{"q": {"x"}}}
 	clk := makeClock(time.Unix(0, 0).UTC(), time.Millisecond, 3)
 	b, err := ComputeContinuity(queries, recaller, clk)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if b.Version != ContinuityContractVersion {
-		t.Errorf("Version: want %q, got %q", ContinuityContractVersion, b.Version)
+	if b.Version != model.ContinuityContractVersion {
+		t.Errorf("Version: want %q, got %q", model.ContinuityContractVersion, b.Version)
 	}
 	if b.GeneratedAt.IsZero() {
 		t.Error("GeneratedAt must be set")
@@ -242,7 +244,7 @@ func TestScoreKnowledgeContinuity_HitRateAndLatencyShapeScore(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			b := ContinuityBaseline{TopKHitRate: tc.hitRate, P95ResumeMs: tc.p95Ms}
+			b := model.ContinuityBaseline{TopKHitRate: tc.hitRate, P95ResumeMs: tc.p95Ms}
 			got := ScoreKnowledgeContinuity(b)
 			if got != tc.want {
 				t.Errorf("ScoreKnowledgeContinuity(hit=%v p95=%v): want %d got %d",
@@ -259,9 +261,9 @@ func TestScoreKnowledgeContinuity_HitRateAndLatencyShapeScore(t *testing.T) {
 // the dimension's signal — the resulting verdict must report
 // knowledge-continuity pass=true with score 100.
 func TestScoreKnowledgeContinuity_FeedsScorecardDimension(t *testing.T) {
-	perfect := ContinuityBaseline{TopKHitRate: 1.0, P95ResumeMs: 5}
+	perfect := model.ContinuityBaseline{TopKHitRate: 1.0, P95ResumeMs: 5}
 	score := ScoreKnowledgeContinuity(perfect)
-	signals := ScorecardSignals{
+	signals := model.ScorecardSignals{
 		CoreOps:                100,
 		MetadataRetrieval:      100,
 		SessionWorkflow:        100,
@@ -272,7 +274,7 @@ func TestScoreKnowledgeContinuity_FeedsScorecardDimension(t *testing.T) {
 		SoakDays:               14,
 	}
 	v := ComputeScorecard(signals)
-	if v.Verdict != VerdictPass {
+	if v.Verdict != model.VerdictPass {
 		t.Fatalf("verdict: want pass, got %s (hold=%q)", v.Verdict, v.HoldReason)
 	}
 	for _, d := range v.Dimensions {
@@ -289,7 +291,7 @@ func TestScoreKnowledgeContinuity_FeedsScorecardDimension(t *testing.T) {
 // guard against accidental float-rounding drift in the score helper.
 func TestScoreKnowledgeContinuity_FloatHitRateRounds(t *testing.T) {
 	// 1/3 hit rate over 3 queries is 0.333... → score 33 (truncated).
-	got := ScoreKnowledgeContinuity(ContinuityBaseline{TopKHitRate: 1.0 / 3.0, P95ResumeMs: 5})
+	got := ScoreKnowledgeContinuity(model.ContinuityBaseline{TopKHitRate: 1.0 / 3.0, P95ResumeMs: 5})
 	if got != 33 {
 		t.Errorf("want 33, got %d", got)
 	}

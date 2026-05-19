@@ -6,7 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
+	"flint/internal/model"
 )
 
 // CreateRelation inserts a typed directed edge from sourceID to targetID.
@@ -38,12 +39,12 @@ func (s *SQLiteStore) CreateRelation(sourceID, targetID int64, relationType stri
 //
 // An unknown id returns an empty slice — callers MUST NOT treat that
 // as a not-found error (a node simply may have zero neighbors).
-func (s *SQLiteStore) Neighbors(id int64, dir app.RelationDirection) ([]app.MemoryRelation, error) {
+func (s *SQLiteStore) Neighbors(id int64, dir model.RelationDirection) ([]model.MemoryRelation, error) {
 	var col string
 	switch dir {
-	case app.RelationDirectionOutbound:
+	case model.RelationDirectionOutbound:
 		col = "source_id"
-	case app.RelationDirectionInbound:
+	case model.RelationDirectionInbound:
 		col = "target_id"
 	default:
 		return nil, errors.New("unknown relation direction")
@@ -64,10 +65,10 @@ func (s *SQLiteStore) Neighbors(id int64, dir app.RelationDirection) ([]app.Memo
 	}
 	defer rows.Close()
 
-	var out []app.MemoryRelation
+	var out []model.MemoryRelation
 	for rows.Next() {
 		var (
-			r          app.MemoryRelation
+			r          model.MemoryRelation
 			createdRaw string
 		)
 		if err := rows.Scan(&r.ID, &r.SourceID, &r.TargetID, &r.RelationType, &createdRaw); err != nil {

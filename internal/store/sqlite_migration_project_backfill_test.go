@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"nt-cli/internal/app"
+	"flint/internal/app"
 )
 
 func TestInit_ProjectBackfillSafetyScenarios(t *testing.T) {
