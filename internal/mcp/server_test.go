@@ -345,7 +345,7 @@ func TestLocalRecordObservation_ValidMarkerReturnsID(t *testing.T) {
 	store := newMemStore()
 	svc := app.NewService(store)
 
-	payload := newCallReq(t, "ntcli_local_record_observation", map[string]interface{}{
+	payload := newCallReq(t, "local_record_observation", map[string]interface{}{
 		"marker": "[BEHAVIORAL_OBSERVATION: category=tone, field=language, value=es, confidence=90]",
 	})
 	resp, ok := handleRequest(payload, svc)
@@ -365,7 +365,7 @@ func TestLocalRecordObservation_MalformedMarkerReturnsNonFatalTextError(t *testi
 	store := newMemStore()
 	svc := app.NewService(store)
 
-	payload := newCallReq(t, "ntcli_local_record_observation", map[string]interface{}{
+	payload := newCallReq(t, "local_record_observation", map[string]interface{}{
 		"marker": "[BEHAVIORAL_OBSERVATION: category=tone, value=es, confidence=90]",
 	})
 	resp, ok := handleRequest(payload, svc)
