@@ -1,4 +1,4 @@
-# nt-cli
+# flint
 
 [![Go Version](https://img.shields.io/badge/go-1.22%2B-00ADD8?logo=go)](./go.mod)
 [![Build](https://github.com/ntimpano/nt-cli/actions/workflows/release.yml/badge.svg)](https://github.com/ntimpano/nt-cli/actions/workflows/release.yml)
@@ -11,17 +11,17 @@
 
 ---
 
-## ¿Qué es nt-cli?
+## ¿Qué es flint?
 
-`nt-cli` te deja guardar, buscar y recuperar contexto útil de forma persistente, **sin depender de servicios externos**.  
+`flint` te deja guardar, buscar y recuperar contexto útil de forma persistente, **sin depender de servicios externos**.  
 Está pensado para que vos (y tus agentes) no pierdan decisiones, aprendizajes ni estado entre sesiones.
 
 ## Features
 
 - Local-first (todo queda en tu máquina)
-- SQLite como base local (`~/.nt-cli/data.db`)
+- SQLite como base local (`~/.flint/flint.db`)
 - Búsqueda full-text con FTS5
-- Servidor MCP para OpenCode (`nt-cli mcp`)
+- Servidor MCP para OpenCode (`flint mcp`)
 - Manejo de sesiones (`start`, `summary`, `end`)
 - Backup / restore atómico
 - Scope por proyecto (contexto más limpio por repo)
@@ -44,11 +44,11 @@ curl -fsSL https://raw.githubusercontent.com/ntimpano/nt-cli/main/scripts/instal
 ## Quick Start (30 segundos)
 
 ```bash
-nt-cli init
-nt-cli save "Definimos usar JWT para auth"
-nt-cli recall "JWT"
-nt-cli context --summary
-nt-cli mcp
+flint init
+flint save "Definimos usar JWT para auth"
+flint recall "JWT"
+flint context --summary
+flint mcp
 ```
 
 ## Usage
@@ -56,7 +56,7 @@ nt-cli mcp
 ### 1) Guardar notas con metadata
 
 ```bash
-nt-cli save --title="Modelo de Auth" \
+flint save --title="Modelo de Auth" \
   --type=decision \
   --topic-key=arch/auth/jwt \
   --scope=project \
@@ -71,8 +71,8 @@ nt-cli save --title="Modelo de Auth" \
 ### 2) Buscar con recall
 
 ```bash
-nt-cli recall "auth jwt"
-nt-cli recall "migración sqlite"
+flint recall "auth jwt"
+flint recall "migración sqlite"
 ```
 
 Recupera lo más relevante por texto (FTS5) y te acelera volver al contexto real.
@@ -80,9 +80,9 @@ Recupera lo más relevante por texto (FTS5) y te acelera volver al contexto real
 ### 3) Sesiones (start → summary → end)
 
 ```bash
-nt-cli session start sprint-23
-nt-cli session summary sprint-23 "Cerramos auth + tests de integración"
-nt-cli session end sprint-23
+flint session start sprint-23
+flint session summary sprint-23 "Cerramos auth + tests de integración"
+flint session end sprint-23
 ```
 
 Útil para dejar trazabilidad de una sesión de trabajo sin mezclarlo con notas sueltas.
@@ -90,9 +90,9 @@ nt-cli session end sprint-23
 ### 4) Operación local: backup / restore / doctor
 
 ```bash
-nt-cli backup /tmp/ntcli-snapshot.db
-nt-cli doctor
-nt-cli restore /tmp/ntcli-snapshot.db
+flint backup /tmp/flint-snapshot.db
+flint doctor
+flint restore /tmp/flint-snapshot.db
 ```
 
 - `backup`: snapshot portable
@@ -106,7 +106,7 @@ Agregá esto en `~/.config/opencode/opencode.json`:
 ```json
 {
   "mcp": {
-    "ntcli": {
+    "flint": {
       "type": "local",
       "command": ["/opt/nt-cli/scripts/opencode-mcp-dev.sh"]
     }
@@ -118,7 +118,7 @@ Compilá el binario antes:
 
 ```bash
 cd /opt/nt-cli
-go build -o nt-cli ./cmd/nt-cli
+go build -o flint ./cmd/flint
 ```
 
 Para detalle de tools MCP y contratos, ver: **[`docs/mcp.md`](docs/mcp.md)**.
@@ -127,27 +127,27 @@ Para detalle de tools MCP y contratos, ver: **[`docs/mcp.md`](docs/mcp.md)**.
 
 | Comando | Qué hace |
 |---|---|
-| `nt-cli init` | Inicializa configuración base |
-| `nt-cli save "<texto>"` | Guarda una nota |
-| `nt-cli recall "<query>"` | Busca notas por texto |
-| `nt-cli list [limit]` | Lista notas recientes |
-| `nt-cli get <id>` | Muestra una nota por ID |
-| `nt-cli update <id> "<texto>"` | Actualiza una nota |
-| `nt-cli delete <id>` | Elimina una nota |
-| `nt-cli context --summary` | Resumen de contexto actual |
-| `nt-cli session start <id>` | Inicia sesión |
-| `nt-cli session summary <id> "<txt>"` | Guarda resumen de sesión |
-| `nt-cli session end <id>` | Cierra sesión |
-| `nt-cli import <archivo.json>` | Importa observaciones |
-| `nt-cli backup <ruta.db>` | Crea snapshot local |
-| `nt-cli restore <ruta.db>` | Restaura snapshot |
-| `nt-cli doctor` | Diagnóstico de base local |
-| `nt-cli mcp` | Ejecuta servidor MCP |
+| `flint init` | Inicializa configuración base |
+| `flint save "<texto>"` | Guarda una nota |
+| `flint recall "<query>"` | Busca notas por texto |
+| `flint list [limit]` | Lista notas recientes |
+| `flint get <id>` | Muestra una nota por ID |
+| `flint update <id> "<texto>"` | Actualiza una nota |
+| `flint delete <id>` | Elimina una nota |
+| `flint context --summary` | Resumen de contexto actual |
+| `flint session start <id>` | Inicia sesión |
+| `flint session summary <id> "<txt>"` | Guarda resumen de sesión |
+| `flint session end <id>` | Cierra sesión |
+| `flint import <archivo.json>` | Importa observaciones |
+| `flint backup <ruta.db>` | Crea snapshot local |
+| `flint restore <ruta.db>` | Restaura snapshot |
+| `flint doctor` | Diagnóstico de base local |
+| `flint mcp` | Ejecuta servidor MCP |
 
 ## Configuration
 
 - **`AGENTS.md`**: define defaults de comportamiento de agentes para este repo.
-- **`~/.nt-cli/profile.json`**: preferencias de usuario (idioma, tono, verbosidad, autoswitch de contexto, etc.).
+- **`~/.flint/profile.json`**: preferencias de usuario (idioma, tono, verbosidad, autoswitch de contexto, etc.).
 - Ejemplo de perfil: `docs/profile.example.json`.
 
 ## Issues y soporte
