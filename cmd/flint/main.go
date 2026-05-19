@@ -32,6 +32,10 @@ func main() {
 		os.Exit(app.RunInitOrProfile(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 	}
 
+	if cmd == "migrate" {
+		os.Exit(app.RunMigrate(os.Args[2:], os.Stdout, os.Stderr))
+	}
+
 	dbPath, err := app.DefaultDBPath()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config error: %v\n", err)
