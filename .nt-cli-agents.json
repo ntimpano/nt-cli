@@ -14,17 +14,13 @@
         "nt-creative-shape": "allow",
         "nt-creative-polish": "allow",
         "nt-creative-ship": "allow",
-        "nt-strategy-diagnose": "allow",
         "nt-strategy-options": "allow",
         "nt-strategy-decide": "allow",
         "nt-strategy-communicate": "allow",
         "nt-strategy-track": "allow",
         "nt-research-gather": "allow",
         "nt-research-synthesize": "allow",
-        "nt-research-challenge": "allow",
         "nt-research-conclude": "allow",
-        "nt-research-document": "allow",
-        "nt-researcher": "allow",
         "nt-sdd-apply": "allow",
         "nt-sdd-archive": "allow",
         "nt-sdd-design": "allow",
@@ -34,7 +30,11 @@
         "nt-sdd-propose": "allow",
         "nt-sdd-spec": "allow",
         "nt-sdd-tasks": "allow",
-        "nt-sdd-verify": "allow"
+        "nt-sdd-verify": "allow",
+        "nt-strategy-brief": "allow",
+        "nt-strategy-explore": "allow",
+        "nt-research-init": "allow",
+        "nt-research-critic": "allow"
       }
     },
     "tools": {
@@ -422,8 +422,8 @@
     "description": "Creative Expand",
     "hidden": true,
     "mode": "subagent",
-    "model": "github-copilot/gemini-3-flash-preview",
-    "prompt": "{file:/opt/nt-cli/prompts/creative/nt-creative-expand.md}",
+    "model": "github-copilot/claude-haiku-4.5",
+    "prompt": "{file:/opt/nt-cli/prompts/creative/expand.md}",
     "tools": {
       "bash": true,
       "read": true,
@@ -454,8 +454,8 @@
     "description": "Creative Focus",
     "hidden": true,
     "mode": "subagent",
-    "model": "github-copilot/claude-sonnet-4.6",
-    "prompt": "{file:/opt/nt-cli/prompts/creative/nt-creative-focus.md}",
+    "model": "github-copilot/claude-haiku-4.5",
+    "prompt": "{file:/opt/nt-cli/prompts/creative/focus.md}",
     "tools": {
       "bash": true,
       "read": true,
@@ -486,8 +486,8 @@
     "description": "Creative Shape",
     "hidden": true,
     "mode": "subagent",
-    "model": "github-copilot/claude-sonnet-4.6",
-    "prompt": "{file:/opt/nt-cli/prompts/creative/nt-creative-shape.md}",
+    "model": "github-copilot/claude-haiku-4.5",
+    "prompt": "{file:/opt/nt-cli/prompts/creative/shape.md}",
     "tools": {
       "bash": true,
       "read": true,
@@ -518,8 +518,8 @@
     "description": "Creative Polish",
     "hidden": true,
     "mode": "subagent",
-    "model": "github-copilot/claude-sonnet-4.6",
-    "prompt": "{file:/opt/nt-cli/prompts/creative/nt-creative-polish.md}",
+    "model": "github-copilot/claude-haiku-4.5",
+    "prompt": "{file:/opt/nt-cli/prompts/creative/polish.md}",
     "tools": {
       "bash": true,
       "read": true,
@@ -550,8 +550,8 @@
     "description": "Creative Ship",
     "hidden": true,
     "mode": "subagent",
-    "model": "github-copilot/gpt-5.4-mini",
-    "prompt": "{file:/opt/nt-cli/prompts/creative/nt-creative-ship.md}",
+    "model": "github-copilot/claude-haiku-4.5",
+    "prompt": "{file:/opt/nt-cli/prompts/creative/ship.md}",
     "tools": {
       "bash": true,
       "read": true,
@@ -578,12 +578,44 @@
       "ntcli_local_restore": true
     }
   },
-  "nt-strategy-diagnose": {
-    "description": "Strategy Diagnose",
+  "nt-strategy-brief": {
+    "description": "Strategy Brief",
     "hidden": true,
     "mode": "subagent",
-    "model": "github-copilot/claude-sonnet-4.6",
-    "prompt": "{file:/opt/nt-cli/prompts/strategy/nt-strategy-diagnose.md}",
+    "model": "github-copilot/claude-haiku-4.5",
+    "prompt": "{file:/opt/nt-cli/prompts/strategy/brief.md}",
+    "tools": {
+      "bash": true,
+      "read": true,
+      "edit": false,
+      "write": false,
+      "ntcli_local_context": true,
+      "ntcli_local_get": true,
+      "ntcli_local_list": true,
+      "ntcli_local_recall": true,
+      "ntcli_local_save": true,
+      "ntcli_local_session_end": true,
+      "ntcli_local_session_start": true,
+      "ntcli_local_session_summary": true,
+      "ntcli_local_update": true,
+      "ntcli_project_confirm": true,
+      "ntcli_project_current": true,
+      "ntcli_project_list": true,
+      "ntcli_project_probe": true,
+      "ntcli_project_switch": true,
+      "ntcli_local_backup": true,
+      "ntcli_local_delete": true,
+      "ntcli_local_doctor": true,
+      "ntcli_local_import": true,
+      "ntcli_local_restore": true
+    }
+  },
+  "nt-strategy-explore": {
+    "description": "Strategy Explore",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "github-copilot/claude-haiku-4.5",
+    "prompt": "{file:/opt/nt-cli/prompts/strategy/explore.md}",
     "tools": {
       "bash": true,
       "read": true,
@@ -615,7 +647,7 @@
     "hidden": true,
     "mode": "subagent",
     "model": "github-copilot/claude-sonnet-4.6",
-    "prompt": "{file:/opt/nt-cli/prompts/strategy/nt-strategy-options.md}",
+    "prompt": "{file:/opt/nt-cli/prompts/strategy/options.md}",
     "tools": {
       "bash": true,
       "read": true,
@@ -646,8 +678,8 @@
     "description": "Strategy Decide",
     "hidden": true,
     "mode": "subagent",
-    "model": "github-copilot/claude-opus-4.7",
-    "prompt": "{file:/opt/nt-cli/prompts/strategy/nt-strategy-decide.md}",
+    "model": "github-copilot/claude-sonnet-4.6",
+    "prompt": "{file:/opt/nt-cli/prompts/strategy/decide.md}",
     "tools": {
       "bash": true,
       "read": true,
@@ -678,8 +710,8 @@
     "description": "Strategy Communicate",
     "hidden": true,
     "mode": "subagent",
-    "model": "github-copilot/gemini-3-flash-preview",
-    "prompt": "{file:/opt/nt-cli/prompts/strategy/nt-strategy-communicate.md}",
+    "model": "github-copilot/claude-haiku-4.5",
+    "prompt": "{file:/opt/nt-cli/prompts/strategy/communicate.md}",
     "tools": {
       "bash": true,
       "read": true,
@@ -710,8 +742,40 @@
     "description": "Strategy Track",
     "hidden": true,
     "mode": "subagent",
-    "model": "github-copilot/gemini-3-flash-preview",
-    "prompt": "{file:/opt/nt-cli/prompts/strategy/nt-strategy-track.md}",
+    "model": "github-copilot/claude-haiku-4.5",
+    "prompt": "{file:/opt/nt-cli/prompts/strategy/track.md}",
+    "tools": {
+      "bash": true,
+      "read": true,
+      "edit": false,
+      "write": false,
+      "ntcli_local_context": true,
+      "ntcli_local_get": true,
+      "ntcli_local_list": true,
+      "ntcli_local_recall": true,
+      "ntcli_local_save": true,
+      "ntcli_local_session_end": true,
+      "ntcli_local_session_start": true,
+      "ntcli_local_session_summary": true,
+      "ntcli_local_update": true,
+      "ntcli_project_confirm": true,
+      "ntcli_project_current": true,
+      "ntcli_project_list": true,
+      "ntcli_project_probe": true,
+      "ntcli_project_switch": true,
+      "ntcli_local_backup": true,
+      "ntcli_local_delete": true,
+      "ntcli_local_doctor": true,
+      "ntcli_local_import": true,
+      "ntcli_local_restore": true
+    }
+  },
+  "nt-research-init": {
+    "description": "Research Init",
+    "hidden": true,
+    "mode": "subagent",
+    "model": "github-copilot/claude-haiku-4.5",
+    "prompt": "{file:/opt/nt-cli/prompts/research/init.md}",
     "tools": {
       "bash": true,
       "read": true,
@@ -742,8 +806,8 @@
     "description": "Research Gather",
     "hidden": true,
     "mode": "subagent",
-    "model": "github-copilot/gemini-3-flash-preview",
-    "prompt": "{file:/opt/nt-cli/prompts/research/nt-research-gather.md}",
+    "model": "github-copilot/claude-haiku-4.5",
+    "prompt": "{file:/opt/nt-cli/prompts/research/gather.md}",
     "tools": {
       "bash": true,
       "read": true,
@@ -774,8 +838,8 @@
     "description": "Research Synthesize",
     "hidden": true,
     "mode": "subagent",
-    "model": "github-copilot/gemini-2.5-pro",
-    "prompt": "{file:/opt/nt-cli/prompts/research/nt-research-synthesize.md}",
+    "model": "github-copilot/claude-sonnet-4.6",
+    "prompt": "{file:/opt/nt-cli/prompts/research/synthesize.md}",
     "tools": {
       "bash": true,
       "read": true,
@@ -802,12 +866,12 @@
       "ntcli_local_restore": true
     }
   },
-  "nt-research-challenge": {
-    "description": "Research Challenge",
+  "nt-research-critic": {
+    "description": "Research Critic",
     "hidden": true,
     "mode": "subagent",
-    "model": "github-copilot/claude-opus-4.7",
-    "prompt": "{file:/opt/nt-cli/prompts/research/nt-research-challenge.md}",
+    "model": "github-copilot/claude-sonnet-4.6",
+    "prompt": "{file:/opt/nt-cli/prompts/research/critic.md}",
     "tools": {
       "bash": true,
       "read": true,
@@ -838,8 +902,8 @@
     "description": "Research Conclude",
     "hidden": true,
     "mode": "subagent",
-    "model": "github-copilot/claude-sonnet-4.6",
-    "prompt": "{file:/opt/nt-cli/prompts/research/nt-research-conclude.md}",
+    "model": "github-copilot/claude-haiku-4.5",
+    "prompt": "{file:/opt/nt-cli/prompts/research/conclude.md}",
     "tools": {
       "bash": true,
       "read": true,
@@ -864,53 +928,6 @@
       "ntcli_local_doctor": true,
       "ntcli_local_import": true,
       "ntcli_local_restore": true
-    }
-  },
-  "nt-research-document": {
-    "description": "Research Document",
-    "hidden": true,
-    "mode": "subagent",
-    "model": "github-copilot/gemini-3-flash-preview",
-    "prompt": "{file:/opt/nt-cli/prompts/research/nt-research-document.md}",
-    "tools": {
-      "bash": true,
-      "read": true,
-      "edit": false,
-      "write": false,
-      "ntcli_local_context": true,
-      "ntcli_local_get": true,
-      "ntcli_local_list": true,
-      "ntcli_local_recall": true,
-      "ntcli_local_save": true,
-      "ntcli_local_session_end": true,
-      "ntcli_local_session_start": true,
-      "ntcli_local_session_summary": true,
-      "ntcli_local_update": true,
-      "ntcli_project_confirm": true,
-      "ntcli_project_current": true,
-      "ntcli_project_list": true,
-      "ntcli_project_probe": true,
-      "ntcli_project_switch": true,
-      "ntcli_local_backup": true,
-      "ntcli_local_delete": true,
-      "ntcli_local_doctor": true,
-      "ntcli_local_import": true,
-      "ntcli_local_restore": true
-    }
-  },
-  "nt-researcher": {
-    "description": "Researcher Web Search",
-    "hidden": true,
-    "mode": "subagent",
-    "model": "github-copilot/gemini-2.5-pro",
-    "prompt": "{file:/opt/nt-cli/prompts/research/nt-researcher.md}",
-    "tools": {
-      "bash": false,
-      "read": false,
-      "edit": false,
-      "write": false,
-      "tavily_search": true,
-      "tavily_extract": true
     }
   }
 }

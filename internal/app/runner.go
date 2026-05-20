@@ -55,7 +55,7 @@ func RunCLIWithStdin(svc *Service, args []string, stdin io.Reader, stdout, stder
 	return runCLIWithInput(svc, args, stdin, stdout, stderr)
 }
 
-// RunCLI dispatches an nt-cli command using the provided Service and writes
+// RunCLI dispatches a flint command using the provided Service and writes
 // human output to stdout / errors to stderr. It returns the process exit code
 // (0 on success, non-zero on validation, not-found, or unknown command).
 //
@@ -103,7 +103,7 @@ func runCLIWithInput(svc *Service, args []string, stdin io.Reader, stdout, stder
 
 	case "save":
 		if len(args) < 2 {
-			fmt.Fprintln(stderr, "usage: nt-cli save [--title=...] [--type=...] [--topic-key=...] [--scope=...] \"your note\"")
+			fmt.Fprintln(stderr, "usage: flint save [--title=...] [--type=...] [--topic-key=...] [--scope=...] \"your note\"")
 			return 1
 		}
 		// Parse leading `--key=value` flags, stop at the first non-flag arg
@@ -138,7 +138,7 @@ func runCLIWithInput(svc *Service, args []string, stdin io.Reader, stdout, stder
 			hasMeta = true
 		}
 		if i >= len(args) {
-			fmt.Fprintln(stderr, "usage: nt-cli save [flags] \"your note\"")
+			fmt.Fprintln(stderr, "usage: flint save [flags] \"your note\"")
 			return 1
 		}
 		note := strings.TrimSpace(strings.Join(args[i:], " "))
@@ -165,7 +165,7 @@ func runCLIWithInput(svc *Service, args []string, stdin io.Reader, stdout, stder
 
 	case "recall":
 		if len(args) < 2 {
-			fmt.Fprintln(stderr, "usage: nt-cli recall [--type=...] [--since=YYYY-MM-DD] [--until=YYYY-MM-DD] \"query\"")
+			fmt.Fprintln(stderr, "usage: flint recall [--type=...] [--since=YYYY-MM-DD] [--until=YYYY-MM-DD] \"query\"")
 			return 1
 		}
 		// Parse leading `--key=value` filter flags. Stop at the first
@@ -214,7 +214,7 @@ func runCLIWithInput(svc *Service, args []string, stdin io.Reader, stdout, stder
 			}
 		}
 		if i >= len(args) {
-			fmt.Fprintln(stderr, "usage: nt-cli recall [flags] \"query\"")
+			fmt.Fprintln(stderr, "usage: flint recall [flags] \"query\"")
 			return 1
 		}
 		query := strings.TrimSpace(strings.Join(args[i:], " "))
@@ -333,7 +333,7 @@ func runCLIWithInput(svc *Service, args []string, stdin io.Reader, stdout, stder
 		if len(args) >= 2 {
 			n, err := strconv.Atoi(strings.TrimSpace(args[1]))
 			if err != nil || n <= 0 {
-				fmt.Fprintln(stderr, "usage: nt-cli list [positive-limit]")
+				fmt.Fprintln(stderr, "usage: flint list [positive-limit]")
 				return 1
 			}
 			limit = n
@@ -354,7 +354,7 @@ func runCLIWithInput(svc *Service, args []string, stdin io.Reader, stdout, stder
 
 	case "delete":
 		if len(args) < 2 {
-			fmt.Fprintln(stderr, "usage: nt-cli delete <id>")
+			fmt.Fprintln(stderr, "usage: flint delete <id>")
 			return 1
 		}
 		id, err := strconv.ParseInt(strings.TrimSpace(args[1]), 10, 64)
@@ -376,7 +376,7 @@ func runCLIWithInput(svc *Service, args []string, stdin io.Reader, stdout, stder
 
 	case "get":
 		if len(args) < 2 {
-			fmt.Fprintln(stderr, "usage: nt-cli get <id>")
+			fmt.Fprintln(stderr, "usage: flint get <id>")
 			return 1
 		}
 		id, err := ParsePositiveID(args[1])
@@ -398,7 +398,7 @@ func runCLIWithInput(svc *Service, args []string, stdin io.Reader, stdout, stder
 
 	case "update":
 		if len(args) < 3 {
-			fmt.Fprintln(stderr, "usage: nt-cli update <id> \"new content\"")
+			fmt.Fprintln(stderr, "usage: flint update <id> \"new content\"")
 			return 1
 		}
 		id, err := ParsePositiveID(args[1])
@@ -434,7 +434,7 @@ func runCLIWithInput(svc *Service, args []string, stdin io.Reader, stdout, stder
 
 	case "backup":
 		if len(args) < 2 {
-			fmt.Fprintln(stderr, "usage: nt-cli backup <path>")
+			fmt.Fprintln(stderr, "usage: flint backup <path>")
 			return 1
 		}
 		if err := svc.Backup(args[1]); err != nil {
@@ -446,7 +446,7 @@ func runCLIWithInput(svc *Service, args []string, stdin io.Reader, stdout, stder
 
 	case "restore":
 		if len(args) < 2 {
-			fmt.Fprintln(stderr, "usage: nt-cli restore <path>")
+			fmt.Fprintln(stderr, "usage: flint restore <path>")
 			return 1
 		}
 		if err := svc.Restore(args[1]); err != nil {
@@ -458,9 +458,9 @@ func runCLIWithInput(svc *Service, args []string, stdin io.Reader, stdout, stder
 
 	case "doctor":
 		// Doctor takes no arguments. Reject extras so typos like
-		// `nt-cli doctor --json` surface instead of silently ignoring.
+		// `flint doctor --json` surface instead of silently ignoring.
 		if len(args) > 1 {
-			fmt.Fprintln(stderr, "usage: nt-cli doctor")
+			fmt.Fprintln(stderr, "usage: flint doctor")
 			return 1
 		}
 		report, err := svc.Doctor()
@@ -605,10 +605,10 @@ func summaryOK(ok bool) string {
 	return "FAIL"
 }
 
-// runSession dispatches `nt-cli session <start|end|summary> <id> [text...]`.
+// runSession dispatches `flint session <start|end|summary> <id> [text...]`.
 // Kept as a helper so the main switch stays scannable. Validation lives at
 // the service layer; the CLI is just an args parser + presenter.
-// runImport dispatches `nt-cli import [--dry-run] <file.json>`. Currently
+// runImport dispatches `flint import [--dry-run] <file.json>`. Currently
 // JSON-only; format is detected by extension when MD/CSV are added.
 func runImport(svc *Service, args []string, stdout, stderr io.Writer) int {
 	dryRun := false
@@ -636,7 +636,7 @@ func runImport(svc *Service, args []string, stdout, stderr io.Writer) int {
 		path = a
 	}
 	if strings.TrimSpace(path) == "" {
-		fmt.Fprintln(stderr, "usage: nt-cli import [--dry-run] <file.json>")
+		fmt.Fprintln(stderr, "usage: flint import [--dry-run] <file.json>")
 		return 1
 	}
 	data, err := os.ReadFile(path)
@@ -659,13 +659,13 @@ func runImport(svc *Service, args []string, stdout, stderr io.Writer) int {
 
 func runSession(svc *Service, args []string, stdout, stderr io.Writer) int {
 	if len(args) < 1 {
-		fmt.Fprintln(stderr, "usage: nt-cli session <start|end|summary> <id> [text]")
+		fmt.Fprintln(stderr, "usage: flint session <start|end|summary> <id> [text]")
 		return 1
 	}
 	switch args[0] {
 	case "start":
 		if len(args) < 2 {
-			fmt.Fprintln(stderr, "usage: nt-cli session start <id>")
+			fmt.Fprintln(stderr, "usage: flint session start <id>")
 			return 1
 		}
 		id := strings.TrimSpace(args[1])
@@ -677,7 +677,7 @@ func runSession(svc *Service, args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "end":
 		if len(args) > 3 {
-			fmt.Fprintln(stderr, "usage: nt-cli session end [id] [--summary=\"text\"]")
+			fmt.Fprintln(stderr, "usage: flint session end [id] [--summary=\"text\"]")
 			return 1
 		}
 		id := ""
@@ -690,7 +690,7 @@ func runSession(svc *Service, args []string, stdout, stderr io.Writer) int {
 			}
 			if a == "--summary" {
 				if i+1 >= len(args) {
-					fmt.Fprintln(stderr, "usage: nt-cli session end [id] [--summary=\"text\"]")
+					fmt.Fprintln(stderr, "usage: flint session end [id] [--summary=\"text\"]")
 					return 1
 				}
 				i++
@@ -698,11 +698,11 @@ func runSession(svc *Service, args []string, stdout, stderr io.Writer) int {
 				continue
 			}
 			if strings.HasPrefix(a, "--") {
-				fmt.Fprintln(stderr, "usage: nt-cli session end [id] [--summary=\"text\"]")
+				fmt.Fprintln(stderr, "usage: flint session end [id] [--summary=\"text\"]")
 				return 1
 			}
 			if id != "" {
-				fmt.Fprintln(stderr, "usage: nt-cli session end [id] [--summary=\"text\"]")
+				fmt.Fprintln(stderr, "usage: flint session end [id] [--summary=\"text\"]")
 				return 1
 			}
 			id = strings.TrimSpace(a)
@@ -734,11 +734,11 @@ func runSession(svc *Service, args []string, stdout, stderr io.Writer) int {
 		return 0
 	case "summary":
 		if len(args) < 2 {
-			fmt.Fprintln(stderr, "usage: nt-cli session summary <id> \"text\"")
+			fmt.Fprintln(stderr, "usage: flint session summary <id> \"text\"")
 			return 1
 		}
 		if len(args) < 3 {
-			fmt.Fprintln(stderr, "usage: nt-cli session summary <id> \"text\"")
+			fmt.Fprintln(stderr, "usage: flint session summary <id> \"text\"")
 			return 1
 		}
 		id := strings.TrimSpace(args[1])
@@ -760,22 +760,22 @@ func runSession(svc *Service, args []string, stdout, stderr io.Writer) int {
 }
 
 func printUsage(w io.Writer) {
-	fmt.Fprintln(w, "nt-cli commands:")
-	fmt.Fprintln(w, "  nt-cli init  Initialize nt-cli: configure runtime, AI model, domain, and persona")
-	fmt.Fprintln(w, "  nt-cli save \"note\"")
-	fmt.Fprintln(w, "  nt-cli recall [--type=...] [--since=YYYY-MM-DD] [--until=YYYY-MM-DD] \"query\"")
-	fmt.Fprintln(w, "  nt-cli context [--n=10] [--scope=...]")
-	fmt.Fprintln(w, "  nt-cli list [limit]")
-	fmt.Fprintln(w, "  nt-cli get <id>")
-	fmt.Fprintln(w, "  nt-cli update <id> \"new content\"")
-	fmt.Fprintln(w, "  nt-cli delete <id>")
-	fmt.Fprintln(w, "  nt-cli session <start|end|summary> [id] [text]")
-	fmt.Fprintln(w, "  nt-cli behavior <list|show|dismiss|preview>")
-	fmt.Fprintln(w, "  nt-cli import [--dry-run] <file.json>")
-	fmt.Fprintln(w, "  nt-cli backup <path>")
-	fmt.Fprintln(w, "  nt-cli restore <path>")
-	fmt.Fprintln(w, "  nt-cli doctor")
-	fmt.Fprintln(w, "  nt-cli mcp")
+	fmt.Fprintln(w, "flint commands:")
+	fmt.Fprintln(w, "  flint init  Initialize flint: configure runtime, AI model, domain, and persona")
+	fmt.Fprintln(w, "  flint save \"note\"")
+	fmt.Fprintln(w, "  flint recall [--type=...] [--since=YYYY-MM-DD] [--until=YYYY-MM-DD] \"query\"")
+	fmt.Fprintln(w, "  flint context [--n=10] [--scope=...]")
+	fmt.Fprintln(w, "  flint list [limit]")
+	fmt.Fprintln(w, "  flint get <id>")
+	fmt.Fprintln(w, "  flint update <id> \"new content\"")
+	fmt.Fprintln(w, "  flint delete <id>")
+	fmt.Fprintln(w, "  flint session <start|end|summary> [id] [text]")
+	fmt.Fprintln(w, "  flint behavior <list|show|dismiss|preview>")
+	fmt.Fprintln(w, "  flint import [--dry-run] <file.json>")
+	fmt.Fprintln(w, "  flint backup <path>")
+	fmt.Fprintln(w, "  flint restore <path>")
+	fmt.Fprintln(w, "  flint doctor")
+	fmt.Fprintln(w, "  flint mcp")
 }
 
 func hasFlag(args []string, flag string) bool {
@@ -805,7 +805,7 @@ func parseDateFlag(raw string) (time.Time, error) {
 	return t.UTC(), nil
 }
 
-// runParity dispatches `nt-cli parity <subcommand>`. Subcommands:
+// runParity dispatches `flint parity <subcommand>`. Subcommands:
 //   - scorecard:  computes the parity verdict from supplied dimension
 //     signals and prints the canonical JSON contract.
 //   - continuity: replays the knowledge-continuity fixture against the
@@ -816,7 +816,7 @@ func parseDateFlag(raw string) (time.Time, error) {
 // skew the scorecard verdict).
 func runParity(svc *Service, args []string, stdout, stderr io.Writer) int {
 	if len(args) < 2 {
-		fmt.Fprintln(stderr, "usage: nt-cli parity <scorecard|continuity>")
+		fmt.Fprintln(stderr, "usage: flint parity <scorecard|continuity>")
 		return 1
 	}
 	switch args[1] {
@@ -831,7 +831,7 @@ func runParity(svc *Service, args []string, stdout, stderr io.Writer) int {
 }
 
 // parityScorecardFlags is the set of int flags accepted by
-// `nt-cli parity scorecard`. They map 1:1 to model.ScorecardSignals
+// `flint parity scorecard`. They map 1:1 to model.ScorecardSignals
 // fields so changes to the contract surface here as compile errors.
 type parityScorecardFlags struct {
 	coreOps                int
@@ -902,7 +902,7 @@ func runParityScorecard(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// runParityContinuity executes `nt-cli parity continuity --fixture=<path> --out=<path>`.
+// runParityContinuity executes `flint parity continuity --fixture=<path> --out=<path>`.
 // Replays the fixture suite through the live store, writes baseline.json
 // to --out, and prints the same baseline as JSON on stdout so the
 // runbook can pipe it into jq or diff against a previous baseline.

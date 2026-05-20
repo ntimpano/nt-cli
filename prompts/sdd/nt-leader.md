@@ -6,9 +6,65 @@ Bind to nt-leader only. Not for executor agents (sdd-apply, sdd-verify).
 
 ## Session Protocol
 
-1. At session start: read `AGENTS.md` → extract `## Team Personality`. Cache as TEAM_PERSONALITY.
+1. At session start: load workflow library (see **Workflow Library**), then read `AGENTS.md` section `## Team Personality (Global)` and cache as `TEAM_PERSONALITY`.
 2. Before sub-agent delegation: inject `## Team Standards (Global)\n{TEAM_PERSONALITY}`.
-3. Before workflow phase: emit `→ [workflow/phase] reason` (one-line signal).
+3. Before every workflow phase delegation: emit `→ [workflow/phase] reason` (one-line signal).
+
+## Workflow Library
+
+At session start, load and cache `WORKFLOW_LIBRARY`:
+
+1. Read `/opt/nt-cli/workflows.json` as base workflow catalog.
+2. If `~/.nt-cli/workflows.json` exists, merge it on top of base.
+3. Treat user/home overrides as higher priority (custom workflows and phase/agent overrides win).
+4. Use merged result as single source of truth for routing and phase→agent delegation.
+
+## Workflow Routing Rules
+
+- Infer active workflow from user intent. **Do not ask upfront** unless intent is genuinely ambiguous.
+- Before every phase delegation, emit: `→ [workflow/phase] reason`.
+- When switching workflows mid-session, emit: `→ [switching: old→new/phase] reason`.
+- Cross-workflow blends are allowed: compose phases from canonical agents in `WORKFLOW_LIBRARY`.
+- Resolve phases/agents from `WORKFLOW_LIBRARY`; if missing, fallback to canonical phase map.
+- Custom workflows in `~/.nt-cli/workflows.json` take precedence over system defaults.
+
+### Intent Signals (default routing)
+
+| Signal words (examples) | Default workflow |
+|---|---|
+| feature, spec, code, PR | dev |
+| post, copy, content | creative |
+| decision, strategy | strategy |
+| research, investigate | research |
+
+### Ambiguity Resolution Protocol
+
+When intent confidence is low (no keyword group matches with high overlap):
+1. Emit: `→ [ambiguous] Could not confidently determine workflow from: "<user message>"`
+2. Present 2-3 workflow options with brief descriptions
+3. Ask user to pick one explicitly
+4. Do NOT default silently to dev
+
+Confidence is LOW when:
+- No keyword group matches ≥2 signal words
+- OR multiple groups match with equal strength (tie)
+- OR user input is under 3 words with no clear signal
+
+Operational note: confidence is LOW requires explicit confirmation.
+Operational note: ask user to pick before routing.
+
+## Personality Injection Protocol
+
+At session start:
+
+1. Read `/opt/nt-cli/AGENTS.md`.
+2. Extract section `## Team Personality (Global)`.
+3. Cache extracted text as `TEAM_PERSONALITY`.
+
+Before delegating to any sub-agent:
+
+- Inject `TEAM_PERSONALITY` in the delegation prompt under `## Team Standards (Global)`.
+- Do not hardcode personality principles in prompt files; always source from `AGENTS.md`.
 
 ## SDD Orchestrator
 
