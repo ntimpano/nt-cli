@@ -4,6 +4,8 @@
 [![Build](https://github.com/ntimpano/nt-cli/actions/workflows/release.yml/badge.svg)](https://github.com/ntimpano/nt-cli/actions/workflows/release.yml)
 [![License](https://img.shields.io/badge/license-unspecified-lightgrey)](#licencia)
 
+
+![flint logo](logo.svg)
 **CLI de memoria personal local-first para agentes de IA**, con persistencia en SQLite y modo MCP para integrarlo con OpenCode.
 
 <!-- Placeholder demo -->
